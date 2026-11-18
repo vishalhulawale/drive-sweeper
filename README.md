@@ -103,8 +103,8 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 1.2 Google Cloud configuration | Done (user configured `.env`) |
 | 1.3 OAuth authentication | Done and verified live (frontend connect screen comes in 1.7) |
 | 1.4 Database setup (models, Alembic) | Done |
-| 1.5 Google Drive client | Not started |
-| 1.6 File scanner | Not started |
+| 1.5 Google Drive client | Done (unit-tested with simulated errors) |
+| 1.6 File scanner | Implemented and tested; first real scan blocked until Drive permission is re-granted (see log) |
 | 1.7 Frontend integration | Not started |
 
 ### Phase 1 checklist
@@ -117,19 +117,28 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 - [x] OAuth credentials generated
 - [x] Google OAuth flow implemented (verified with a real Google login)
 - [x] Secure token persistence implemented (Fernet-encrypted at rest)
-- [ ] Google Drive client implemented
-- [ ] File metadata retrieval implemented
-- [ ] Pagination implemented
-- [ ] File metadata stored in PostgreSQL
-- [ ] Folder relationships stored
-- [ ] Scan progress implemented
-- [ ] Scan checkpointing implemented
-- [ ] Scan resumption implemented
+- [x] Google Drive client implemented
+- [x] File metadata retrieval implemented
+- [x] Pagination implemented
+- [x] File metadata stored in PostgreSQL
+- [x] Folder relationships stored
+- [x] Scan progress implemented
+- [x] Scan checkpointing implemented
+- [x] Scan resumption implemented (real-Drive run pending)
 - [ ] File inventory displayed in React
 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-18 - Milestones 1.5 and 1.6: Drive client and resumable scanner
+- `services/google_drive.py`: metadata-only Drive v3 client (`files.list`, pageSize 1000, requested fields from the plan plus `ownedByMe`). Retries 429/5xx and rate-limit 403s with exponential backoff and jitter (max 6 attempts); raises `InvalidPageToken` for a stale page token; 60 s HTTP timeout. Never modifies files.
+- `services/file_scanner.py`: each page is upserted and its `next_page_token` checkpoint saved in one transaction, so resume never skips data. Idempotent upsert on `(account_id, google_file_id)`; locally computed `sha256_checksum` is never overwritten. Handles folders, Google-native docs (no size/MD5), shortcuts (target id), multiple parents, ownership. After a complete scan, rows no longer returned by Drive are removed from the local inventory. An expired page token restarts the listing (capped at 3 restarts, then the scan fails instead of looping).
+- `workers/scan_worker.py`: runs scans in a background thread with its own DB session (Celery later; the `scan_jobs` table is the contract). Orphaned running jobs are marked `interrupted` at startup and can be resumed.
+- `api/scans.py`: `POST /api/scans` (409 if one is active), `GET /api/scans`, `GET /api/scans/{id}`, `POST /api/scans/{id}/resume`, `POST /api/scans/{id}/cancel`. Cancellation is checked between pages.
+- Bugs found and fixed while testing: an infinite restart loop on a perpetually expiring page token; stale-file sweep depended on DB-server clock vs app clock (now stamped by the app clock).
+- Tests: 18 passing (parsing variants, idempotent re-scan, crash then resume from checkpoint, expired token, restart cap, stale removal, cancellation, sha256 preservation, retry/backoff, permission errors).
+- First real scan failed with `403 insufficientPermissions`: the stored token was granted only `openid` + `email`; the Drive permission box was unticked on Google's consent screen. Login now rejects such grants (`?auth_error=missing_drive_scope`) and the scan error explains the fix. Action for the user: disconnect, reconnect, and tick the Drive checkbox.
 
 ### 2026-11-18 - Live OAuth login verified
 - Completed a real Google login end to end: callback redirected to the frontend, `GET /api/auth/status` returns connected, and the `drive_accounts` row holds Fernet-encrypted access and refresh tokens.

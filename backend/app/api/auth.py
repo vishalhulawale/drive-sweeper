@@ -33,6 +33,8 @@ def google_callback(request: Request, db: Session = Depends(get_db)):
         )
     try:
         oauth_service.complete_authorization(db, str(request.url), state, verifier)
+    except oauth_service.MissingDriveScope:
+        return RedirectResponse(f"{settings.frontend_origin}/?auth_error=missing_drive_scope")
     except Exception:
         log.exception("OAuth callback failed")
         return RedirectResponse(f"{settings.frontend_origin}/?auth_error=callback_failed")

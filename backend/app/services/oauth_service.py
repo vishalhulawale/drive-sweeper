@@ -16,10 +16,17 @@ from app.core.security import decrypt, encrypt
 from app.models import DriveAccount
 
 # Read-only while scanning (least privilege). The broader "drive" scope is added in Phase 3.
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.metadata.readonly"
+
+
+class MissingDriveScope(Exception):
+    pass
+
+
 SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/drive.metadata.readonly",
+    DRIVE_SCOPE,
 ]
 
 if settings.google_redirect_uri.startswith("http://localhost"):
@@ -86,6 +93,12 @@ def complete_authorization(
     flow = _flow(state=state, code_verifier=code_verifier)
     flow.fetch_token(authorization_response=authorization_response)
     creds = flow.credentials
+    granted = flow.oauth2session.token.get("scope") or []
+    if isinstance(granted, str):
+        granted = granted.split()
+    if DRIVE_SCOPE not in granted:
+        # Google's consent screen lets users untick individual permissions.
+        raise MissingDriveScope("Google Drive permission was not granted")
     info = google_id_token.verify_oauth2_token(
         creds.id_token, google_requests.Request(), settings.google_client_id
     )
@@ -130,6 +143,14 @@ def credentials_for(account: DriveAccount) -> Credentials:
         scopes=SCOPES,
         expiry=expiry,
     )
+
+
+def persist_credentials(db: Session, account: DriveAccount, creds: Credentials) -> None:
+    """Save an access token that google-auth refreshed during a long-running job."""
+    if creds.token and decrypt(account.access_token) != creds.token:
+        account.access_token = encrypt(creds.token)
+        account.token_expiry = creds.expiry.replace(tzinfo=timezone.utc) if creds.expiry else None
+        db.commit()
 
 
 def disconnect(db: Session, account: DriveAccount) -> None:
