@@ -101,7 +101,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 |---|---|
 | 1.1 Project initialisation | Done |
 | 1.2 Google Cloud configuration | Done (user configured `.env`) |
-| 1.3 OAuth authentication | Backend done; needs a live login test and the frontend connect screen (1.7) |
+| 1.3 OAuth authentication | Done and verified live (frontend connect screen comes in 1.7) |
 | 1.4 Database setup (models, Alembic) | Done |
 | 1.5 Google Drive client | Not started |
 | 1.6 File scanner | Not started |
@@ -115,7 +115,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 - [x] Google Cloud project created
 - [x] Google Drive API enabled
 - [x] OAuth credentials generated
-- [x] Google OAuth flow implemented (backend, live login not yet tested)
+- [x] Google OAuth flow implemented (verified with a real Google login)
 - [x] Secure token persistence implemented (Fernet-encrypted at rest)
 - [ ] Google Drive client implemented
 - [ ] File metadata retrieval implemented
@@ -130,6 +130,10 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-18 - Live OAuth login verified
+- Completed a real Google login end to end: callback redirected to the frontend, `GET /api/auth/status` returns connected, and the `drive_accounts` row holds Fernet-encrypted access and refresh tokens.
+- Next: Milestone 1.5 (Drive API client with pagination, retry/backoff, rate limits) and 1.6 (resumable scanner).
 
 ### 2026-11-18 - OAuth login hardening
 - Hit `Invalid OAuth state` / `OAuth state mismatch` during the first live login attempt. Root cause: state was tied to a per-browser cookie, which breaks with overlapping tabs, retries, or `127.0.0.1` vs `localhost`.
