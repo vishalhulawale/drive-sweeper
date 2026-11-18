@@ -39,7 +39,7 @@ backend/
   app/
     api/ core/ models/ schemas/ repositories/ services/ workers/ utils/
     main.py
-  migrations/        (Alembic, not yet initialised)
+  migrations/        (Alembic; initial schema migration applied)
   tests/
   requirements.txt
   .env.example
@@ -99,10 +99,10 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 | Milestone | Status |
 |---|---|
-| 1.1 Project initialisation | Done, except verifying the DB container (Docker daemon was not running) |
-| 1.2 Google Cloud configuration | Manual, awaiting user (steps above) |
-| 1.3 OAuth authentication | Not started |
-| 1.4 Database setup (models, Alembic) | Not started |
+| 1.1 Project initialisation | Done |
+| 1.2 Google Cloud configuration | Done (user configured `.env`) |
+| 1.3 OAuth authentication | Backend done; needs a live login test and the frontend connect screen (1.7) |
+| 1.4 Database setup (models, Alembic) | Done |
 | 1.5 Google Drive client | Not started |
 | 1.6 File scanner | Not started |
 | 1.7 Frontend integration | Not started |
@@ -111,12 +111,12 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 - [x] React application initialised
 - [x] FastAPI application initialised
-- [ ] PostgreSQL configured (compose file written, not yet verified running)
-- [ ] Google Cloud project created
-- [ ] Google Drive API enabled
-- [ ] OAuth credentials generated
-- [ ] Google OAuth flow implemented
-- [ ] Secure token persistence implemented
+- [x] PostgreSQL configured
+- [x] Google Cloud project created
+- [x] Google Drive API enabled
+- [x] OAuth credentials generated
+- [x] Google OAuth flow implemented (backend, live login not yet tested)
+- [x] Secure token persistence implemented (Fernet-encrypted at rest)
 - [ ] Google Drive client implemented
 - [ ] File metadata retrieval implemented
 - [ ] Pagination implemented
@@ -130,6 +130,17 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-18 - Milestones 1.3 and 1.4: database and OAuth backend
+- Added SQLAlchemy 2 models for all seven tables (`drive_accounts`, `drive_files`, `duplicate_groups`, `duplicate_group_files`, `scan_jobs`, `cleanup_operations`, `sync_state`). `drive_files` has a unique `(account_id, google_file_id)` constraint and indexes on size, MD5 and parent folder. Parent lists use JSONB (`parent_ids`, `previous_parent_ids`).
+- Initialised Alembic wired to app settings and model metadata; generated and applied the initial migration to the Docker Postgres.
+- `core/security.py`: Fernet encryption for OAuth tokens at rest.
+- `services/oauth_service.py`: authorization-code flow with PKCE, `access_type=offline` + `prompt=consent` so a refresh token is always issued, ID-token verification, upsert of the account, token revoke on disconnect.
+- Scopes requested: `openid`, `userinfo.email`, `drive.metadata.readonly` only (read-only, least privilege).
+- `api/auth.py`: `GET /api/auth/google`, `GET /api/auth/google/callback` (state checked against an httponly cookie), `GET /api/auth/status`, `POST /api/auth/disconnect`.
+- Tests: 6 passing (token round-trip, status shape, login redirect/scope/offline, bad-state rejection, schema tables present).
+- To try the login now: run the backend and open `http://localhost:8000/api/auth/google`.
+- Note: Windows reported a low-memory (paging file) error once while running Docker; if Docker commands fail, free memory or restart Docker Desktop.
 
 ### 2026-11-18 - Milestone 1.1: project scaffold
 - Created backend skeleton following the planned structure; added config (pydantic-settings), SQLAlchemy engine/session/Base, CORS for the frontend origin, and `GET /api/health` with a passing test.
