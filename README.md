@@ -104,7 +104,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 1.3 OAuth authentication | Done and verified live (frontend connect screen comes in 1.7) |
 | 1.4 Database setup (models, Alembic) | Done |
 | 1.5 Google Drive client | Done (unit-tested with simulated errors) |
-| 1.6 File scanner | Implemented and tested; first real scan blocked until Drive permission is re-granted (see log) |
+| 1.6 File scanner | Done, verified on the real Drive |
 | 1.7 Frontend integration | Not started |
 
 ### Phase 1 checklist
@@ -124,12 +124,19 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 - [x] Folder relationships stored
 - [x] Scan progress implemented
 - [x] Scan checkpointing implemented
-- [x] Scan resumption implemented (real-Drive run pending)
+- [x] Scan resumption implemented (unit-tested; full real scan ran uninterrupted)
 - [ ] File inventory displayed in React
 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-18 - First real Drive scan
+- After re-granting the Drive permission and enabling the Drive API in the Cloud project, scan #34 completed: **29,210 files in ~2 min 10 s** (about 220 files/s), no errors.
+- Inventory: 1,252 folders, 67 Google-native docs, 27,891 files with an MD5, 3,980 trashed items, 724 shared (not owned) items, 120 items without a parent (mostly shared-with-me), about 112 GB of reported sizes (includes trashed items).
+- Rough preview of Phase 2: about 2,578 groups of files share MD5 and size. This raw figure still includes trashed and non-owned files, so duplicate detection must exclude trashed items and treat shared files carefully before any savings number is trusted.
+- Cleaned up a leftover test account created by an interrupted test run.
+- Next: Milestone 1.7, the frontend (connect screen, scan progress, file and folder browser), which needs `GET /api/files` and `GET /api/files/tree` endpoints.
 
 ### 2026-11-18 - Milestones 1.5 and 1.6: Drive client and resumable scanner
 - `services/google_drive.py`: metadata-only Drive v3 client (`files.list`, pageSize 1000, requested fields from the plan plus `ownedByMe`). Retries 429/5xx and rate-limit 403s with exponential backoff and jitter (max 6 attempts); raises `InvalidPageToken` for a stale page token; 60 s HTTP timeout. Never modifies files.
