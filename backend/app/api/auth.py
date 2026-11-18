@@ -30,8 +30,16 @@ def google_callback(request: Request, db: Session = Depends(get_db)):
     if error:
         return RedirectResponse(f"{settings.frontend_origin}/?auth_error={error}")
     state = request.cookies.get("oauth_state")
-    if not state or state != request.query_params.get("state"):
-        raise HTTPException(400, "Invalid OAuth state")
+    if not state:
+        log.warning("OAuth callback without state cookie (host=%s)", request.url.hostname)
+        raise HTTPException(
+            400,
+            "OAuth state cookie missing. Start the login at "
+            "http://localhost:8000/api/auth/google (same host as the redirect URI, not 127.0.0.1) "
+            "and do not reload the callback URL.",
+        )
+    if state != request.query_params.get("state"):
+        raise HTTPException(400, "OAuth state mismatch. Start the login again.")
     try:
         oauth_service.complete_authorization(
             db, str(request.url), state, request.cookies.get("oauth_verifier")
