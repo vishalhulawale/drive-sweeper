@@ -5,10 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from contextlib import asynccontextmanager
 
-from app.api import auth, scans
+from app.api import auth, files, scans
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.repositories import scan_repository
-from app.core.config import settings
 
 logging.basicConfig(level=logging.INFO)
 
@@ -36,6 +36,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(scans.router)
+app.include_router(files.router)
 
 
 @app.get("/api/health")

@@ -43,7 +43,7 @@ backend/
   tests/
   requirements.txt
   .env.example
-frontend/            (Vite + React + TypeScript)
+frontend/            (Vite + React + TypeScript + MUI; pages, hooks, services, types)
 docker-compose.yml   (PostgreSQL 16)
 ```
 
@@ -105,7 +105,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 1.4 Database setup (models, Alembic) | Done |
 | 1.5 Google Drive client | Done (unit-tested with simulated errors) |
 | 1.6 File scanner | Done, verified on the real Drive |
-| 1.7 Frontend integration | Not started |
+| 1.7 Frontend integration | Built; builds and serves, needs your visual check in the browser |
 
 ### Phase 1 checklist
 
@@ -125,11 +125,18 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 - [x] Scan progress implemented
 - [x] Scan checkpointing implemented
 - [x] Scan resumption implemented (unit-tested; full real scan ran uninterrupted)
-- [ ] File inventory displayed in React
+- [x] File inventory displayed in React (built, awaiting browser check)
 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-18 - Milestone 1.7: files API and frontend
+- Backend: `GET /api/files` (parent folder or `root`, name search across the Drive with LIKE wildcards escaped, kind filter folder/file/doc, show-trashed, sort by name/size/modified/created, pagination up to 200), `GET /api/files/summary`, `GET /api/files/tree?parent=`, `GET /api/files/{id}`, `/children`, `/path` (breadcrumb). "Top level" means no parent or a parent that was never listed, because Drive does not return the My Drive root folder; this also surfaces shared-with-me items.
+- Verified on the real inventory: 29,210 items, 148 top-level entries (34 folders), search and size sort correct (largest file 15.2 GB), responses about 0.3 s.
+- Frontend: connect screen with friendly error messages (denied, missing Drive permission), dashboard with scan start/resume/cancel, live progress (polls every 2 s while scanning) and summary cards, file explorer (folder navigation with breadcrumb, search, sorting, trashed toggle, pagination, "open in Drive" link, shared/trashed badges), scan history table, settings with a two-step disconnect. State lives in the URL for the explorer so back/forward works.
+- Tests: 26 backend tests passing (adds query/filter/escape/sort/tree/breadcrumb/summary against a seeded test account). Frontend: TypeScript, lint and production build are clean; dev server serves. Not yet checked visually in a browser.
+- Dev note: restart uvicorn after pulling backend changes (it does not auto-reload unless started with `--reload`).
 
 ### 2026-11-18 - First real Drive scan
 - After re-granting the Drive permission and enabling the Drive API in the Cloud project, scan #34 completed: **29,210 files in ~2 min 10 s** (about 220 files/s), no errors.
