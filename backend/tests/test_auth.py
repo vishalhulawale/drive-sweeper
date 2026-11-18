@@ -6,6 +6,7 @@ from sqlalchemy import inspect
 from app.core.database import engine
 from app.core.security import decrypt, encrypt
 from app.main import app
+from app.services import oauth_service
 
 client = TestClient(app)
 
@@ -29,10 +30,12 @@ def test_login_redirects_to_google_with_offline_and_readonly_scope():
     assert q["access_type"] == ["offline"]
     assert "drive.metadata.readonly" in q["scope"][0]
     assert "https://www.googleapis.com/auth/drive " not in q["scope"][0] + " "
-    assert "oauth_state" in r.cookies
+    state = q["state"][0]
+    assert oauth_service.pop_pending(state)[0] is True
+    assert oauth_service.pop_pending(state)[0] is False  # single use
 
 
-def test_callback_rejects_bad_state():
+def test_callback_rejects_unknown_state():
     assert client.get("/api/auth/google/callback?state=x&code=y").status_code == 400
 
 

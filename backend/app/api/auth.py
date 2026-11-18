@@ -11,17 +11,10 @@ from app.services import oauth_service
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-_COOKIE = {"httponly": True, "samesite": "lax", "max_age": 600}
-
-
 @router.get("/google")
 def google_login():
-    url, state, verifier = oauth_service.build_authorization_url()
-    resp = RedirectResponse(url)
-    resp.set_cookie("oauth_state", state, **_COOKIE)
-    if verifier:
-        resp.set_cookie("oauth_verifier", verifier, **_COOKIE)
-    return resp
+    url, _state, _verifier = oauth_service.build_authorization_url()
+    return RedirectResponse(url)
 
 
 @router.get("/google/callback")
@@ -29,28 +22,21 @@ def google_callback(request: Request, db: Session = Depends(get_db)):
     error = request.query_params.get("error")
     if error:
         return RedirectResponse(f"{settings.frontend_origin}/?auth_error={error}")
-    state = request.cookies.get("oauth_state")
-    if not state:
-        log.warning("OAuth callback without state cookie (host=%s)", request.url.hostname)
+    state = request.query_params.get("state", "")
+    found, verifier = oauth_service.pop_pending(state)
+    if not found:
+        log.warning("OAuth callback with unknown or expired state")
         raise HTTPException(
             400,
-            "OAuth state cookie missing. Start the login at "
-            "http://localhost:8000/api/auth/google (same host as the redirect URI, not 127.0.0.1) "
-            "and do not reload the callback URL.",
+            "Unknown or expired login attempt (the server may have restarted, or this link was "
+            "already used). Start again at /api/auth/google.",
         )
-    if state != request.query_params.get("state"):
-        raise HTTPException(400, "OAuth state mismatch. Start the login again.")
     try:
-        oauth_service.complete_authorization(
-            db, str(request.url), state, request.cookies.get("oauth_verifier")
-        )
+        oauth_service.complete_authorization(db, str(request.url), state, verifier)
     except Exception:
         log.exception("OAuth callback failed")
         return RedirectResponse(f"{settings.frontend_origin}/?auth_error=callback_failed")
-    resp = RedirectResponse(f"{settings.frontend_origin}/")
-    resp.delete_cookie("oauth_state")
-    resp.delete_cookie("oauth_verifier")
-    return resp
+    return RedirectResponse(f"{settings.frontend_origin}/")
 
 
 @router.get("/status")

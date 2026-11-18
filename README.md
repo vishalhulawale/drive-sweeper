@@ -131,6 +131,11 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-18 - OAuth login hardening
+- Hit `Invalid OAuth state` / `OAuth state mismatch` during the first live login attempt. Root cause: state was tied to a per-browser cookie, which breaks with overlapping tabs, retries, or `127.0.0.1` vs `localhost`.
+- Pending logins are now stored server-side keyed by OAuth state (with PKCE verifier, 10-minute TTL, single use); cookies are no longer used. Trade-off: pending logins are lost if the server restarts mid-login, and state is not bound to the browser (acceptable for a local personal app; revisit for multi-user).
+- Earlier `403 access_denied` was caused by the `.env` client ID belonging to another Google Cloud project ("District Dashboard") in Testing mode. Use a client from the DriveClean project and add yourself as a test user.
+
 ### 2026-11-18 - Milestones 1.3 and 1.4: database and OAuth backend
 - Added SQLAlchemy 2 models for all seven tables (`drive_accounts`, `drive_files`, `duplicate_groups`, `duplicate_group_files`, `scan_jobs`, `cleanup_operations`, `sync_state`). `drive_files` has a unique `(account_id, google_file_id)` constraint and indexes on size, MD5 and parent folder. Parent lists use JSONB (`parent_ids`, `previous_parent_ids`).
 - Initialised Alembic wired to app settings and model metadata; generated and applied the initial migration to the Docker Postgres.

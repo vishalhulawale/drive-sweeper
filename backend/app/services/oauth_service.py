@@ -1,5 +1,7 @@
 """Google OAuth 2.0 flow and token persistence. No business logic lives in the routes."""
 import os
+import threading
+import time
 from datetime import datetime, timezone
 
 from google.auth.transport import requests as google_requests
@@ -23,6 +25,30 @@ SCOPES = [
 if settings.google_redirect_uri.startswith("http://localhost"):
     os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")  # local development only
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")  # Google may reorder or add granted scopes
+
+
+# Pending logins keyed by OAuth state -> (code_verifier, expires_at). In-memory is fine for a
+# single-process personal app; it also makes overlapping tabs/retries work (no cookie needed).
+_PENDING_TTL = 600
+_pending: dict[str, tuple[str | None, float]] = {}
+_pending_lock = threading.Lock()
+
+
+def _remember(state: str, verifier: str | None) -> None:
+    now = time.time()
+    with _pending_lock:
+        for k in [k for k, (_, exp) in _pending.items() if exp < now]:
+            del _pending[k]
+        _pending[state] = (verifier, now + _PENDING_TTL)
+
+
+def pop_pending(state: str) -> tuple[bool, str | None]:
+    """Returns (found, code_verifier). A state can be used only once."""
+    with _pending_lock:
+        entry = _pending.pop(state, None)
+    if entry is None or entry[1] < time.time():
+        return False, None
+    return True, entry[0]
 
 
 def _flow(state: str | None = None, code_verifier: str | None = None) -> Flow:
@@ -50,6 +76,7 @@ def build_authorization_url() -> tuple[str, str, str | None]:
     url, state = flow.authorization_url(
         access_type="offline", prompt="consent", include_granted_scopes="true"
     )
+    _remember(state, flow.code_verifier)
     return url, state, flow.code_verifier
 
 
