@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from contextlib import asynccontextmanager
 
-from app.api import auth, files, scans
+from app.api import auth, duplicates, files, scans
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.repositories import scan_repository
@@ -37,6 +37,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(scans.router)
 app.include_router(files.router)
+app.include_router(duplicates.router)
 
 
 @app.get("/api/health")

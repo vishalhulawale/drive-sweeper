@@ -1,3 +1,4 @@
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import HistoryIcon from '@mui/icons-material/History'
@@ -20,6 +21,7 @@ const WIDTH = 220
 const NAV: { to: string; label: string; icon: ReactNode }[] = [
   { to: '/', label: 'Dashboard', icon: <DashboardIcon /> },
   { to: '/files', label: 'Files', icon: <FolderOpenIcon /> },
+  { to: '/duplicates', label: 'Duplicates', icon: <ContentCopyIcon /> },
   { to: '/scans', label: 'Scan history', icon: <HistoryIcon /> },
   { to: '/settings', label: 'Settings', icon: <SettingsIcon /> },
 ]

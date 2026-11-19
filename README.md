@@ -87,8 +87,8 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 | Phase | Goal | Status |
 |---|---|---|
-| 1 | Foundation and Google Drive integration (inventory) | In progress |
-| 2 | Exact duplicate detection and review UI | Not started |
+| 1 | Foundation and Google Drive integration (inventory) | Done (UI checked, backend restart issue fixed) |
+| 2 | Exact duplicate detection and review UI | In progress (detection, API and review UI built; needs your visual check) |
 | 3 | Manual cleanup (Trash, history, restore) | Not started |
 | 4 | Storage analytics | Not started |
 | 5 | Smart file organizer | Not started |
@@ -105,7 +105,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 1.4 Database setup (models, Alembic) | Done |
 | 1.5 Google Drive client | Done (unit-tested with simulated errors) |
 | 1.6 File scanner | Done, verified on the real Drive |
-| 1.7 Frontend integration | Built; builds and serves, needs your visual check in the browser |
+| 1.7 Frontend integration | Done |
 
 ### Phase 1 checklist
 
@@ -130,6 +130,14 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-19 - Phase 2 started: exact duplicate detection and review UI
+- Phase 1 closed. The intermittent "Not found" errors were a stale uvicorn started before the files API existed (no `--reload`); restarting with `--reload` fixed it. Note: on Windows, `--reload` can hang after a scan thread ran; if new routes 404, kill uvicorn and start it again.
+- `services/duplicate_detector.py`: groups by MD5 + size over live, owned, non-shortcut, non-Google-native, non-empty files. Rebuild is idempotent and keeps the user's earlier keep/trash choices. Recommended keeper is the oldest copy (ties: shorter name, then id). Read-only: nothing changes in Drive.
+- API: `POST /api/duplicates/detect`, `GET /api/duplicates` (sort by savings, copies, or file size; paged), `GET /api/duplicates/summary`, `GET /api/duplicates/{id}`, `PUT /api/duplicates/entries/{id}/selection` (keep / trash / clear).
+- Real Drive result: **268 groups, 4,472 files, about 270 MB reclaimable**. This replaces the raw 2,578-group preview, which counted trashed, shared and empty files.
+- Frontend: new Duplicates page (sidebar entry) with group cards, per-file Keep/Trash toggles, suggested action chips, sort and pagination. Selections are only recorded; actual trashing is Phase 3.
+- Tests: 30 backend tests passing (4 new). Frontend typecheck, lint and build clean. Not yet checked visually.
 
 ### 2026-11-18 - Milestone 1.7: files API and frontend
 - Backend: `GET /api/files` (parent folder or `root`, name search across the Drive with LIKE wildcards escaped, kind filter folder/file/doc, show-trashed, sort by name/size/modified/created, pagination up to 200), `GET /api/files/summary`, `GET /api/files/tree?parent=`, `GET /api/files/{id}`, `/children`, `/path` (breadcrumb). "Top level" means no parent or a parent that was never listed, because Drive does not return the My Drive root folder; this also surfaces shared-with-me items.

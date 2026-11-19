@@ -7,6 +7,7 @@ import { useAuthStatus } from './hooks/useGoogleDrive'
 import MainLayout from './layouts/MainLayout'
 import ConnectPage from './pages/ConnectPage'
 import Dashboard from './pages/Dashboard'
+import Duplicates from './pages/Duplicates'
 import FileExplorer from './pages/FileExplorer'
 import ScanHistory from './pages/ScanHistory'
 import Settings from './pages/Settings'
@@ -38,7 +39,8 @@ export default function App() {
       <Route element={<MainLayout />}>
         <Route index element={<Dashboard />} />
         <Route path="files" element={<FileExplorer />} />
-        <Route path="scans" element={<ScanHistory />} />
+        <Route path="duplicates" element={<Duplicates />} />
+        <Route path="scans"element={<ScanHistory />} />
         <Route path="settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
