@@ -193,3 +193,90 @@ def test_api(env, monkeypatch):
         assert c.post("/api/sync").status_code == 409
     finally:
         app.dependency_overrides.clear()
+
+
+# ---- automatic background sync ------------------------------------------------------------------
+
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+from app.workers import auto_sync  # noqa: E402
+
+
+@pytest.fixture(autouse=False)
+def clean_attempts():
+    auto_sync._last_attempt.clear()
+    yield
+    auto_sync._last_attempt.clear()
+
+
+def _factory_for(db_unused=None):
+    return SessionLocal
+
+
+def test_is_due_rules(env, clean_attempts):
+    db, acc = env
+    st = sync_service.get_state(db, acc.id)
+    now_dt, now = datetime.now(timezone.utc), 10_000.0
+    st.last_sync_at = now_dt - timedelta(minutes=20)
+    assert auto_sync.is_due(st, now, now_dt)                                   # 15 min interval elapsed
+    st.last_sync_at = now_dt - timedelta(minutes=5)
+    assert not auto_sync.is_due(st, now, now_dt)                               # synced recently
+    st.last_sync_at = now_dt - timedelta(minutes=20)
+    st.auto_sync_enabled = False
+    assert not auto_sync.is_due(st, now, now_dt)                               # switched off
+    st.auto_sync_enabled, st.sync_status = True, "running"
+    assert not auto_sync.is_due(st, now, now_dt)                               # already running
+    st.sync_status, st.changes_page_token = "idle", None
+    assert not auto_sync.is_due(st, now, now_dt)                               # no baseline yet
+    st.changes_page_token = "c0"
+    auto_sync._last_attempt[acc.id] = now - 60
+    assert not auto_sync.is_due(st, now, now_dt)                               # failed a minute ago: back off
+    auto_sync._last_attempt[acc.id] = now - 400
+    assert auto_sync.is_due(st, now, now_dt)                                   # retry after 5 min
+
+
+def test_tick_syncs_due_account_and_records_success(env, clean_attempts, monkeypatch):
+    db, acc = env
+    st = sync_service.get_state(db, acc.id)
+    st.last_sync_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    st.last_error = "old problem"
+    db.commit()
+    feed = FakeChanges([[{"fileId": "a", "file": raw("a", name="auto.png")}]])
+    monkeypatch.setattr(oauth_service, "credentials_for", lambda a: None)
+    monkeypatch.setattr(oauth_service, "persist_credentials", lambda *a: None)
+    ran = auto_sync.run_due(client_factory=lambda creds: feed)
+    assert acc.id in ran
+    db.expire_all()
+    assert names(db, acc)["a"].name == "auto.png"
+    assert sync_service.get_state(db, acc.id).last_error is None
+    assert acc.id not in auto_sync.run_due(client_factory=lambda creds: feed)     # not due again right away
+
+
+def test_tick_records_failure_and_keeps_going(env, clean_attempts, monkeypatch):
+    db, acc = env
+    st = sync_service.get_state(db, acc.id)
+    st.last_sync_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    db.commit()
+    monkeypatch.setattr(oauth_service, "credentials_for", lambda a: None)
+
+    class Boom:
+        def list_changes_page(self, token):
+            raise DriveError("network down")
+
+    auto_sync.run_due(client_factory=lambda creds: Boom())
+    db.expire_all()
+    state = sync_service.get_state(db, acc.id)
+    assert "network down" in state.last_error and state.sync_status == "failed"
+
+
+def test_reset_stuck_and_settings_api(env, monkeypatch):
+    db, acc = env
+    sync_service.get_state(db, acc.id).sync_status = "running"
+    db.commit()
+    assert auto_sync.reset_stuck(db) >= 1
+    monkeypatch.setattr(oauth_service, "get_account", lambda _db: acc)
+    c = TestClient(app)
+    r = c.put("/api/sync/settings", json={"enabled": False, "minutes": 30})
+    assert r.status_code == 200 and r.json()["auto_sync_enabled"] is False and r.json()["auto_sync_minutes"] == 30
+    assert c.put("/api/sync/settings", json={"enabled": True, "minutes": 1}).status_code == 422
+    assert c.get("/api/sync/status").json()["auto_sync_minutes"] == 30

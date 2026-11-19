@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.repositories import scan_repository
 from app.services import cleanup_service
+from app.workers import auto_sync
 
 logging.basicConfig(level=logging.INFO)
 
@@ -24,7 +25,10 @@ async def lifespan(_app: FastAPI):
         m = cleanup_service.mark_orphans_interrupted(db)
         if m:
             logging.getLogger(__name__).warning("Marked %d orphaned cleanup operation(s) as failed", m)
+        auto_sync.reset_stuck(db)
+    auto_sync.start()
     yield
+    auto_sync.stop()
 
 
 app = FastAPI(title="DriveClean", lifespan=lifespan)

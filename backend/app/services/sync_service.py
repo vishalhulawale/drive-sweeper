@@ -39,7 +39,24 @@ def status(db: Session, account_id: int) -> dict:
     return {
         "available": bool(state and state.changes_page_token),
         "last_sync_at": state.last_sync_at if state else None,
+        "auto_sync_enabled": state.auto_sync_enabled if state else True,
+        "auto_sync_minutes": state.auto_sync_minutes if state else 15,
+        "last_error": state.last_error if state else None,
     }
+
+
+MIN_INTERVAL, MAX_INTERVAL = 5, 1440
+
+
+def update_settings(db: Session, account_id: int, enabled: bool, minutes: int) -> dict:
+    if not MIN_INTERVAL <= minutes <= MAX_INTERVAL:
+        raise ValueError(f"Interval must be between {MIN_INTERVAL} and {MAX_INTERVAL} minutes")
+    state = get_state(db, account_id)
+    if state is None:
+        raise SyncUnavailable("Run one full scan first; it sets the starting point for quick sync.")
+    state.auto_sync_enabled, state.auto_sync_minutes = enabled, minutes
+    db.commit()
+    return status(db, account_id)
 
 
 def sync(db: Session, account_id: int, client) -> dict:

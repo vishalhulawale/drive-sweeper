@@ -93,7 +93,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 4 | Storage analytics | Done (overview, by type, by year, largest folders and files) |
 | 5 | Smart file organizer | Built and tested with a fake Drive; needs you to try a few moves on the real Drive |
 | 6 | Incremental sync (Changes API) | Done and verified on the real Drive |
-| 7 | Advanced features | Not started |
+| 7 | Advanced features | In progress: automatic sync done; near-duplicate photos and Trash overview next |
 
 ### Phase 1 milestones
 
@@ -130,6 +130,13 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-19 - Phase 7a: automatic background sync
+- Phase 7 scope you chose: automatic background sync, near-duplicate photos, Trash overview. This is the first of the three.
+- `workers/auto_sync.py`: a daemon thread wakes every 30 s and runs quick sync when it is due (default every 15 minutes, 5 minutes to 24 hours). It never runs while a full scan or another sync is running, backs off 5 minutes after a failure, records the last error, and treats a sync left `running` by a crashed server as idle at startup. Read-only; uses the same code and safety as the manual button.
+- Settings (migration `c4e8f1a2b9d5`): on/off and interval, stored in `sync_state`; `PUT /api/sync/settings`; the Quick sync card on the dashboard has the switch, interval picker and shows the last automatic error. Default is on once a baseline exists.
+- It only runs while the backend process is running, so it does not sync when your computer or the server is off.
+- 71 backend tests passing (4 new, covering when a sync is due, success, failure and the settings API). Frontend clean.
 
 ### 2026-11-19 - Phase 6: incremental sync (Changes API)
 - A full scan now takes a Changes bookmark (`getStartPageToken`) **before** it starts listing, so edits made during the scan are not missed, and publishes it to `sync_state` only when the scan completes (migration `b7d2e9a1c4f3`, `scan_jobs.changes_start_token`). If the bookmark call fails the scan still works and quick sync simply stays unavailable; an existing bookmark is never overwritten by a failed or partial scan.

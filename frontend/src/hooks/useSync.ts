@@ -3,6 +3,14 @@ import { syncService } from '../services/syncService'
 
 export const useSyncStatus = () => useQuery({ queryKey: ['sync-status'], queryFn: syncService.status })
 
+export function useSyncSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { enabled: boolean; minutes: number }) => syncService.saveSettings(v.enabled, v.minutes),
+    onSuccess: (data) => qc.setQueryData(['sync-status'], data),
+  })
+}
+
 export function useRunSync() {
   const qc = useQueryClient()
   return useMutation({

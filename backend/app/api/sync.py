@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -14,6 +14,14 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 class SyncStatus(BaseModel):
     available: bool
     last_sync_at: datetime | None
+    auto_sync_enabled: bool
+    auto_sync_minutes: int
+    last_error: str | None
+
+
+class SettingsIn(BaseModel):
+    enabled: bool
+    minutes: int = Field(ge=5, le=1440)
 
 
 class SyncResult(BaseModel):
@@ -37,6 +45,14 @@ def get_client(db: Session = Depends(get_db)) -> DriveClient:
 @router.get("/status", response_model=SyncStatus)
 def sync_status(db: Session = Depends(get_db)):
     return sync_service.status(db, _account(db).id)
+
+
+@router.put("/settings", response_model=SyncStatus)
+def update_settings(body: SettingsIn, db: Session = Depends(get_db)):
+    try:
+        return sync_service.update_settings(db, _account(db).id, body.enabled, body.minutes)
+    except sync_service.SyncUnavailable as err:
+        raise HTTPException(409, str(err))
 
 
 @router.post("", response_model=SyncResult)
