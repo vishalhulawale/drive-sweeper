@@ -1,10 +1,16 @@
-"""Smart organizer: suggest which existing folder a loose file belongs in, then move it (undoable).
+"""Smart organizer: suggest which folder a loose file belongs in, then move it (undoable).
 
-Suggestions use metadata only and are deterministic. A destination folder is described by the files
-directly inside it: what kinds of files they are, the span of their modification dates, and their
-filename patterns. A file is matched to the folder it most resembles.
+Two kinds of suggestions:
 
-Moves are the only write: add the new parent, remove the old one. Nothing is renamed or deleted.
+- By file pattern (metadata only, deterministic). A destination folder is described by the files directly
+  inside it: what kinds of files they are, the span of their modification dates, and their filename patterns.
+  A file is matched to the existing folder it most resembles.
+- By content. Claude reads an excerpt of each file (services/content_classifier.py) and picks a topic folder
+  such as "Medical" or "Education". An existing folder with that name is used; otherwise the folder is
+  created at the top of My Drive when the move is applied.
+
+The writes are moves (add the new parent, remove the old one) and creating those topic folders. Nothing is
+renamed or deleted.
 """
 import logging
 import re
@@ -104,18 +110,22 @@ def score(f, p: Profile) -> tuple[float, list[str]] | None:
     return total, reasons
 
 
+def source_filter(files: list, source: str):
+    """Which files count as "loose" in source: 'root' (top level, or a parent we cannot see) or a folder id.
+    Folders owned by others count as folders: a file inside a shared folder is already filed."""
+    if source != "root":
+        return lambda f: f.parent_folder_id == source
+    all_folder_ids = {f.google_file_id for f in files if f.mime_type == FOLDER}
+    return lambda f: f.parent_folder_id is None or f.parent_folder_id not in all_folder_ids
+
+
 def propose(files: list, source: str = "root", limit: int = 200) -> list[dict]:
     """files: every live (not trashed) DriveFile-like row, any owner. Returns suggestions, best first.
 
-    Only files you own are moved, and only into folders you own. Folders owned by others still count
-    when deciding what is "loose": a file inside a shared folder is already filed."""
-    all_folder_ids = {f.google_file_id for f in files if f.mime_type == FOLDER}
+    Only files you own are moved, and only into folders you own."""
     folders = {f.google_file_id: f for f in files if f.mime_type == FOLDER and f.is_owned_by_user}
     profiles = build_profiles(files, folders)
-    if source == "root":
-        is_source = lambda f: f.parent_folder_id is None or f.parent_folder_id not in all_folder_ids  # noqa: E731
-    else:
-        is_source = lambda f: f.parent_folder_id == source  # noqa: E731
+    is_source = source_filter(files, source)
 
     out = []
     for f in files:
@@ -135,11 +145,55 @@ def propose(files: list, source: str = "root", limit: int = 200) -> list[dict]:
         if best and best[3][0] >= MIN_SCORE:
             _key, fid, p, (total, reasons) = best
             out.append({
-                "file": f, "folder_id": fid, "folder_name": p.folder.name,
+                "file": f, "folder_id": fid, "folder_name": p.folder.name, "new_folder": False,
                 "score": round(total, 2), "confidence": "high" if total >= HIGH_SCORE else "medium",
-                "reasons": reasons,
+                "reasons": reasons, "summary": None,
             })
     out.sort(key=lambda s: (-s["score"], s["file"].name))
+    return out[:limit]
+
+
+CONTENT_SCORES = {"high": 0.9, "medium": 0.7}
+
+
+def folders_by_name(files: list) -> dict[str, object]:
+    """Folder name (case-insensitive) -> the folder of yours a topic of that name goes to. With several
+    folders of one name, a top-level one wins, then the fuller one."""
+    folders = [f for f in files if f.mime_type == FOLDER and f.is_owned_by_user]
+    ids = {f.google_file_id for f in folders}
+    counts = Counter(f.parent_folder_id for f in files)
+    best: dict[str, object] = {}
+    for f in sorted(folders, key=lambda f: (f.parent_folder_id in ids, -counts[f.google_file_id], f.name)):
+        best.setdefault(f.name.strip().casefold(), f)
+    return best
+
+
+def propose_by_content(files: list, source: str = "root", limit: int = 200) -> list[dict]:
+    """Suggestions from the topics Claude picked (see content_classifier). Files whose topic is missing,
+    out of date or low confidence are left out."""
+    from app.services import content_classifier as cc
+
+    by_name = folders_by_name(files)
+    out = []
+    for f in cc.candidates(files, source_filter(files, source)):
+        if not f.content_topic or cc.needs_topic(f) or f.topic_confidence not in CONTENT_SCORES:
+            continue
+        topic = f.content_topic.strip()
+        folder = by_name.get(topic.casefold())
+        if folder is not None and folder.google_file_id in (f.parent_folder_id, f.google_file_id):
+            continue  # already there
+        reasons = [f'Claude read the file and chose the topic "{topic}"']
+        if f.topic_summary:
+            reasons.insert(0, f.topic_summary)
+        reasons.append(f'Moves into your existing folder "{folder.name}"' if folder is not None
+                       else f'A new folder "{topic}" will be created at the top of My Drive')
+        out.append({
+            "file": f, "folder_id": folder.google_file_id if folder is not None else None,
+            "folder_name": folder.name if folder is not None else topic, "new_folder": folder is None,
+            "score": CONTENT_SCORES[f.topic_confidence], "confidence": f.topic_confidence,
+            "reasons": reasons, "summary": f.topic_summary,
+        })
+    out.sort(key=lambda s: (-s["score"], s["folder_name"].casefold(), s["file"].name))
     return out[:limit]
 
 
@@ -170,11 +224,30 @@ def _finish(db: Session, op: CleanupOperation, status: str, error: str | None) -
 MOVE_WORKERS = 4
 
 
-def apply_moves(db: Session, account_id: int, client, moves: list[dict]) -> list[CleanupOperation]:
-    """moves: [{"file_id": google id, "folder_id": google id}]. Every move is re-verified live first.
+MAX_FOLDER_NAME = 120
 
-    The whole batch is validated before anything changes. Each destination folder is checked live once,
-    each file is fetched once, and the Drive calls run on a few threads; database work stays here."""
+
+def _topic_folder(db: Session, account_id: int, client, name: str) -> DriveFile:
+    """The top-level folder called name: reused if Drive already has one, else created. Recorded locally
+    right away so later suggestions see it as an existing folder."""
+    folder_id = client.find_folder(name, "root") or client.create_folder(name, "root")
+    row = db.scalar(select(DriveFile).where(DriveFile.account_id == account_id, DriveFile.google_file_id == folder_id))
+    if row is None:
+        now = _now()
+        row = DriveFile(account_id=account_id, google_file_id=folder_id, name=name, mime_type=FOLDER,
+                        is_owned_by_user=True, trashed=False, created_time=now, modified_time=now)
+        db.add(row)
+        db.commit()
+    return row
+
+
+def apply_moves(db: Session, account_id: int, client, moves: list[dict]) -> list[CleanupOperation]:
+    """moves: [{"file_id": google id, "folder_id": google id}], or for a topic folder that does not exist yet
+    [{"file_id": ..., "folder_name": "Medical"}]. Every move is re-verified live first.
+
+    The whole batch is validated before anything changes; new folders are created (or found, when Drive
+    already has a top-level folder of that name) only after that. Each destination folder is checked live
+    once, each file is fetched once, and the Drive calls run on a few threads; database work stays here."""
     if len(moves) > MAX_MOVES:
         raise TooManyMoves(f"At most {MAX_MOVES} moves per run")
     resolved, seen = [], set()
@@ -184,14 +257,38 @@ def apply_moves(db: Session, account_id: int, client, moves: list[dict]) -> list
         seen.add(m["file_id"])
         f = db.scalar(select(DriveFile).where(
             DriveFile.account_id == account_id, DriveFile.google_file_id == m["file_id"]))
-        dest = db.scalar(select(DriveFile).where(
-            DriveFile.account_id == account_id, DriveFile.google_file_id == m["folder_id"]))
+        name = (m.get("folder_name") or "").strip()
+        if m.get("folder_id"):
+            dest = db.scalar(select(DriveFile).where(
+                DriveFile.account_id == account_id, DriveFile.google_file_id == m["folder_id"]))
+        elif name and len(name) <= MAX_FOLDER_NAME and "/" not in name:
+            dest = name  # a folder to create, below
+        else:
+            raise ValueError("Each move needs a folder_id or a valid new folder name")
         if f is None or dest is None:
             raise LookupError("Unknown file or folder")  # nothing has been changed yet
         resolved.append((f, dest))
 
+    # New topic folders: one per name (case-insensitive), the first spelling wins.
+    new_names = {}
+    for _f, dest in resolved:
+        if isinstance(dest, str):
+            new_names.setdefault(dest.casefold(), dest)
+    created, create_errors = {}, {}
+    for key, name in new_names.items():
+        try:
+            created[key] = _topic_folder(db, account_id, client, name)
+        except DriveError as err:
+            create_errors[key] = f'Could not create the folder "{name}" ({err})'
+    pending = []
+    for f, dest in resolved:
+        if isinstance(dest, str):
+            pending.append((f, created.get(dest.casefold()), create_errors.get(dest.casefold())))
+        else:
+            pending.append((f, dest, None))
+
     ops = []
-    for f, _dest in resolved:
+    for f, _dest, _err in pending:
         op = CleanupOperation.for_file(
             f, account_id=account_id, operation_type="move", status="pending",
             previous_parent_ids=f.parent_ids or ([f.parent_folder_id] if f.parent_folder_id else []),
@@ -201,11 +298,14 @@ def apply_moves(db: Session, account_id: int, client, moves: list[dict]) -> list
     db.commit()
 
     with ThreadPoolExecutor(MOVE_WORKERS) as pool:
-        folders = {dest.google_file_id for _f, dest in resolved if dest.mime_type == FOLDER}
+        folders = {d.google_file_id for _f, d, _e in pending if d is not None and d.mime_type == FOLDER}
         dest_problem = dict(zip(folders, pool.map(lambda gid: _check_destination(client, gid), folders)))
         work = []
-        for op, (f, dest) in zip(ops, resolved):
-            problem = "Destination is not a folder" if dest.mime_type != FOLDER else dest_problem[dest.google_file_id]
+        for op, (f, dest, create_error) in zip(ops, pending):
+            if create_error:
+                _finish(db, op, "failed", create_error)
+                continue
+            problem ="Destination is not a folder" if dest.mime_type != FOLDER else dest_problem[dest.google_file_id]
             if problem:
                 _finish(db, op, "skipped", problem)
             else:

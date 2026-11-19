@@ -43,4 +43,12 @@ class DriveFile(Base):
     phash_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     phash_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     phash_md5: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Topic folder Claude picked from the file's contents (see services/content_classifier.py), with a
+    # one-line summary and confidence. topic_key records which version of the file it was read from
+    # (md5, or the modified time for Google Docs), so an edited file is read again.
+    content_topic: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    topic_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    topic_confidence: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    topic_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    topic_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

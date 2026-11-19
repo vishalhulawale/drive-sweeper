@@ -75,10 +75,22 @@ const HELP: Record<PageKey, { header: string; body: ReactNode }> = {
   organizer: {
     header: 'Organizer',
     body: (
-      <p>
-        Suggestions for moving loose files into folders that already hold similar files. Moving a file needs a broader
-        Google permission. Every move can be undone from the move history.
-      </p>
+      <>
+        <p>
+          Suggestions for moving loose files into folders. <strong>By content</strong> has Claude read a short excerpt
+          of each file (text, the first pages of a scanned PDF, or a small image preview) and pick a topic folder such as
+          Medical or Education. A folder you already have with that name is reused; otherwise it is created at the top of
+          your Drive when you move. This needs an Anthropic API key on the backend, and the excerpts are sent to the Claude API.
+        </p>
+        <p>
+          <strong>By file patterns</strong> uses only file types, dates and names to match files to existing folders that
+          hold similar files, and sends nothing anywhere.
+        </p>
+        <p>
+          Reading contents and moving files need the broader Google permission. Every move can be undone from the move
+          history; folders created for a move stay in place.
+        </p>
+      </>
     ),
   },
   archives: {

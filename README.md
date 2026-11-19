@@ -11,7 +11,7 @@ DriveClean scans your Drive's metadata into a local PostgreSQL database, finds e
 - **Manual cleanup**: you mark files for Trash, and DriveClean re-checks every file live against Drive before moving it. At least one copy of each group is always kept, and every action is recorded and can be restored.
 - **Storage analytics**: usage by file type and year, the largest files, and a folder treemap.
 - **Trash overview**: how much space Trash uses and when Drive will delete each item.
-- **File organizer**: suggests existing folders for loose files based on file types, dates and naming patterns. Moves can be undone.
+- **File organizer**: sorts loose files into topic folders by what they contain (hospital records into Medical, mark sheets into Education), using Claude to read a short excerpt of each file. Existing folders are reused and missing ones are created when you move. Without an Anthropic API key, it suggests existing folders from file types, dates and naming patterns instead. Moves can be undone.
 - **Incremental sync**: after the first full scan, the Drive Changes API keeps the inventory current in seconds. It runs on a schedule and when you open the review pages.
 
 ## How it works
@@ -22,7 +22,7 @@ React frontend ──REST──> FastAPI backend ──> Google Drive API v3
                               └──> PostgreSQL (metadata, scan state, duplicate groups, history)
 ```
 
-Google Drive stays the source of truth. The database stores metadata only, never file contents. Scans are resumable, and long jobs (scans, photo analysis, cleanup runs) run in background threads with progress and cancel.
+Google Drive stays the source of truth. The database stores metadata only, never file contents. The one feature that reads contents is the organizer's content analysis, which you start yourself: it sends each file's name and a short excerpt (a few thousand characters of text, the first pages of a scanned PDF, or a small image preview) to the Claude API and keeps only the chosen folder and a one-line summary. Scans are resumable, and long jobs (scans, photo analysis, cleanup runs) run in background threads with progress and cancel.
 
 **Safety rules**, enforced in the backend:
 
@@ -38,7 +38,7 @@ Google Drive stays the source of truth. The database stores metadata only, never
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS, TanStack Query |
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2, Alembic |
 | Database | PostgreSQL 16 |
-| Integration | Google Drive API v3, Google OAuth 2.0 |
+| Integration | Google Drive API v3, Google OAuth 2.0, Claude API (optional, for content-based organizing) |
 
 ## Getting started
 
@@ -72,6 +72,8 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 ```
 
 Put the output in `TOKEN_ENCRYPTION_KEY`. Never commit `backend/.env`.
+
+To sort files by content, also set `ANTHROPIC_API_KEY` (from the [Claude Console](https://platform.claude.com/)). `CLASSIFIER_MODEL` defaults to `claude-opus-5-5`. Each analysis run is billed to that key: files are sent eight per request, and each file is read again only after it changes.
 
 ### Run with Docker
 

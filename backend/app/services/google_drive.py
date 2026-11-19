@@ -1,8 +1,10 @@
 """Thin Google Drive API v3 client with retry/backoff.
 
 Kept separate from scanning and duplicate detection (principle 3). Writes are limited to set_trashed()
-(to or from Trash), move_file() (change folder), and create_folder()/upload_file() for archive
-extraction, which is also the only feature that downloads file contents. It never deletes anything permanently.
+(to or from Trash), move_file() (change folder), create_folder() (archive extraction and the organizer's
+topic folders) and upload_file() (archive extraction). File contents are downloaded only by archive
+extraction and read_content(), which gives the organizer's content classifier a short in-memory excerpt.
+It never deletes anything permanently.
 """
 import json
 import logging
@@ -298,3 +300,34 @@ class DriveClient:
         )
         result = self._execute(request, page_token=page_token)
         return result.get("files", []), result.get("nextPageToken")
+
+    # ---- content excerpts (used by the organizer's content classifier) ----
+
+    def read_content(self, file_id: str, max_bytes: int, export_mime: str | None = None) -> bytes:
+        """The first max_bytes of a file's contents, kept in memory and never written to disk.
+
+        export_mime converts a Google Docs/Sheets/Slides file (e.g. to text/plain); Drive exports whole
+        files only, so the export is cut to max_bytes afterwards. Thread-safe, like the thumbnail calls."""
+        fid = quote(file_id, safe="")
+        if export_mime:
+            url = f"https://www.googleapis.com/drive/v3/files/{fid}/export?mimeType={quote(export_mime, safe='')}"
+            headers = {}
+        else:
+            url = f"https://www.googleapis.com/drive/v3/files/{fid}?alt=media"
+            headers = {"Range": f"bytes=0-{max_bytes - 1}"}
+        http = self._thread_http()
+        for attempt in range(1, 4):
+            try:
+                resp, content = http.request(url, "GET", headers=headers)
+            except NETWORK_ERRORS as err:
+                if attempt == 3:
+                    raise DriveError(f"Reading the file failed: {type(err).__name__}: {err}") from err
+                self._sleep(2 ** attempt + random.uniform(0, 1))
+                continue
+            if resp.status in (200, 206):
+                return content[:max_bytes]
+            if resp.status in (429, 500, 502, 503) and attempt < 3:
+                self._sleep(2 ** attempt + random.uniform(0, 1))
+                continue
+            raise DriveError(f"Reading the file failed with HTTP {resp.status}")
+        raise DriveError("Reading the file failed")
