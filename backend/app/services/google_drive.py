@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 FILE_FIELDS = (
     "id,name,mimeType,size,md5Checksum,parents,createdTime,modifiedTime,"
-    "ownedByMe,webViewLink,trashed,shortcutDetails(targetId),capabilities(canTrash,canMoveItemWithinDrive)"
+    "ownedByMe,webViewLink,trashed,trashedTime,shortcutDetails(targetId),capabilities(canTrash,canMoveItemWithinDrive)"
 )
 LIST_FIELDS = f"nextPageToken,files({FILE_FIELDS})"
 PAGE_SIZE = 1000
@@ -165,4 +165,19 @@ class DriveClient:
                 continue
             raise DriveError(f"Thumbnail request failed with HTTP {resp.status}")
         raise DriveError("Thumbnail request failed")
+
+    # ---- Trash ----
+
+    def list_trashed_page(self, page_token: str | None = None) -> tuple[list[dict], str | None]:
+        """One page of items in Trash with when each was trashed (metadata only)."""
+        request = self._service.files().list(
+            q="trashed = true and 'me' in owners",
+            pageSize=PAGE_SIZE,
+            pageToken=page_token,
+            fields="nextPageToken,files(id,trashedTime)",
+            spaces="drive",
+            corpora="user",
+        )
+        result = self._execute(request, page_token=page_token)
+        return result.get("files", []), result.get("nextPageToken")
 

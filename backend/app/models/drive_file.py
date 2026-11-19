@@ -30,6 +30,7 @@ class DriveFile(Base):
     created_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     modified_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     web_view_link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trashed_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     trashed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_owned_by_user: Mapped[bool] = mapped_column(Boolean, default=True)
     is_shortcut: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -6,6 +6,7 @@ import HistoryIcon from '@mui/icons-material/History'
 import PieChartIcon from '@mui/icons-material/PieChart'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary'
+import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined'
 import SettingsIcon from '@mui/icons-material/Settings'
 import AppBar from '@mui/material/AppBar'
 import Box from '@mui/material/Box'
@@ -30,6 +31,7 @@ const NAV: { to: string; label: string; icon: ReactNode }[] = [
   { to: '/similar', label: 'Similar photos', icon: <PhotoLibraryIcon /> },
   { to: '/organizer', label: 'Organizer', icon: <AutoFixHighIcon /> },
   { to: '/cleanup', label: 'Cleanup', icon: <DeleteSweepIcon /> },
+  { to: '/trash', label: 'Trash', icon: <DeleteOutlinedIcon /> },
   { to: '/scans', label: 'Scan history', icon: <HistoryIcon /> },
   { to: '/settings', label: 'Settings', icon: <SettingsIcon /> },
 ]

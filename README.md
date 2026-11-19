@@ -93,7 +93,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 4 | Storage analytics | Done (overview, by type, by year, largest folders and files) |
 | 5 | Smart file organizer | Built and tested with a fake Drive; needs you to try a few moves on the real Drive |
 | 6 | Incremental sync (Changes API) | Done and verified on the real Drive |
-| 7 | Advanced features | In progress: automatic sync and near-duplicate photos done; Trash overview next |
+| 7 | Advanced features | Done (automatic sync, similar photos, Trash overview). The similar-photos analysis has not been run on the full Drive yet |
 
 ### Phase 1 milestones
 
@@ -134,9 +134,17 @@ Newest first.
 ### 2026-11-19 - Faster similar-photos scan
 - Thumbnail hashing now uses 32 parallel fetch threads (was 8), lists the next page of images while the current page is being hashed, and writes hashes with one bulk update per page instead of a lookup per file. Stopping now takes effect within the current page instead of after it.
 
+### 2026-11-19 - Phase 7c: Trash overview
+- New **Trash** page: how much space your Trash takes, how much Drive will delete automatically within 7 days, when the next automatic deletion is, and a sortable list (by size, by deletion date, by name) with a "trashed here" marker for files this app trashed. Drive deletes Trash items 30 days after they were trashed; until then they still count against your storage.
+- **Emptying Trash is not built on purpose.** It is permanent, so the page explains this and links to Drive's Trash for you to do it yourself. Nothing in this app can permanently delete a file.
+- `drive_files.trashed_time` (migration `e6a1b4c8d2f7`) is filled by scans and sync, set by Cleanup, and cleared on restore. For files trashed before this existed, **Fetch dates** does one metadata-only listing of the Trash (`POST /api/trash/refresh-dates`). API: `GET /api/trash/overview`, `GET /api/trash/items`.
+- Counts only files you own; folders are counted separately; files shared with you are excluded because they do not use your storage.
+- Live check: your Trash was **empty** when I tried it (the local inventory dropped from 29,210 to 25,225 items after the automatic sync at 06:18, matching the ~3,980 items that had been in Trash). The app has no permanent-delete code and had only trashed 2 files, so the Trash was emptied in Drive itself. The populated view is covered by tests only, not yet seen on real data.
+- Tests: 88 backend tests passing (6 new). Frontend typecheck, lint and build clean. Not yet checked visually.
+
 ### 2026-11-19 - Phase 7b: near-duplicate (similar) photos
 - Finds photos that look alike but are not byte-identical (resized, re-saved, lightly edited). `services/perceptual.py`: dHash fingerprint (64 bits from a 9x8 greyscale shrink) and clustering at Hamming distance 4 or less. Candidate pairs come from splitting the hash into 5 chunks (a pigeonhole guarantee that no pair within 4 bits is missed), flat/blank images are ignored, and oversized buckets are skipped so a bad hash cannot cause a runaway comparison.
-- `services/near_duplicate_service.py` + `workers/near_worker.py`: a background job lists your images (metadata), fetches a **64 px thumbnail** of each (a few KB; the original files are never downloaded), hashes it with Pillow (new dependency) and stores the hash on the file row (migration `d5f9a3b7c1e2`). Resumable and committed page by page; a file is only re-hashed if its md5 changed; images under 30 KB are skipped; thumbnails that fail temporarily are retried next run, ones that cannot exist or decode are counted as unreadable. Eight parallel fetches.
+- `services/near_duplicate_service.py` + `workers/near_worker.py`: a background job lists your images (metadata), fetches a **64 px thumbnail** of each (a few KB; the original files are never downloaded), hashes it with Pillow (new dependency) and stores the hash on the file row (migration `d5f9a3b7c1e2`). Resumable and committed page by page; a file is only re-hashed if its md5 changed; images under 30 KB are skipped; thumbnails that fail temporarily are retried next run, ones that cannot exist or decode are counted as unreadable. Thumbnails are fetched in parallel (32 threads) and the next listing page is requested while the current one is hashed; Stop takes effect promptly.
 - Groups are stored with `detection_type='near'`, so exact and near groups are kept apart (the exact rebuild no longer touches near groups). Keeper suggestion is the largest file (oldest on a tie); groups whose members are all byte-identical are left to exact detection. Your keep/trash choices survive re-grouping. After a cleanup, restore or sync, both kinds of groups are refreshed.
 - Cleanup safety change: each file is now re-checked against **its own** recorded md5 (and the kept copy against its own), not a group-wide md5, because near duplicates differ byte-wise. For exact groups this is identical to before.
 - API: `/api/near-duplicates` (`status`, `start`, `cancel`, `detect`, `thumbnail/{id}`) and `GET /api/duplicates?kind=near`. Similar photos page: analysis card with progress and Stop/Resume, previews side by side, Keep/Trash toggles, a "Trash all but the best" button, and a link to Cleanup.

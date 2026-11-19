@@ -43,6 +43,7 @@ def parse_file(raw: dict, scanned_at: datetime) -> dict:
         "modified_time": _parse_time(raw.get("modifiedTime")),
         "web_view_link": raw.get("webViewLink"),
         "trashed": bool(raw.get("trashed", False)),
+        "trashed_time": _parse_time(raw.get("trashedTime")) if raw.get("trashed") else None,
         "is_owned_by_user": bool(raw.get("ownedByMe", False)),
         "is_shortcut": is_shortcut,
         "shortcut_target_id": (raw.get("shortcutDetails") or {}).get("targetId") if is_shortcut else None,

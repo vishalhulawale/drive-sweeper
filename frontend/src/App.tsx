@@ -14,6 +14,7 @@ import Organizer from './pages/Organizer'
 import Duplicates from './pages/Duplicates'
 import FileExplorer from './pages/FileExplorer'
 import ScanHistory from './pages/ScanHistory'
+import Trash from './pages/Trash'
 import Settings from './pages/Settings'
 import { errorMessage } from './services/api'
 
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="duplicates" element={<Duplicates />} />
         <Route path="similar" element={<SimilarPhotos />} />
         <Route path="organizer" element={<Organizer />} />
+        <Route path="trash" element={<Trash />} />
         <Route path="cleanup" element={<Cleanup />} />
         <Route path="scans" element={<ScanHistory />} />
         <Route path="settings" element={<Settings />} />

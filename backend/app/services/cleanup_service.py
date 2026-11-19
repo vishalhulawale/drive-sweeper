@@ -129,6 +129,7 @@ def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[Clea
                 continue
             client.set_trashed(f.google_file_id, True)
             f.trashed = True
+            f.trashed_time = _now()
             op.previous_parent_ids = live.get("parents") or f.parent_ids
             _finish(db, op, "completed", None)
         except DriveError as err:
@@ -231,6 +232,7 @@ def restore(db: Session, account_id: int, client, op_id: int) -> CleanupOperatio
         _finish(db, op, "failed", str(err))
         return op
     f.trashed = False
+    f.trashed_time = None
     original.status = "restored"
     _finish(db, op, "completed", None)
     duplicate_detector.refresh_all(db, account_id)

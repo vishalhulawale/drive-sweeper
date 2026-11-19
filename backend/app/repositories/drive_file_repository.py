@@ -9,7 +9,7 @@ from app.models import DriveFile
 _UPDATE_COLUMNS = [
     "name", "mime_type", "size", "md5_checksum", "parent_folder_id", "parent_ids",
     "created_time", "modified_time", "web_view_link", "trashed", "is_owned_by_user",
-    "is_shortcut", "shortcut_target_id", "last_scanned_at",
+    "is_shortcut", "shortcut_target_id", "trashed_time", "last_scanned_at",
 ]
 
 
