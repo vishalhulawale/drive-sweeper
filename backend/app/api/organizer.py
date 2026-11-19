@@ -83,7 +83,10 @@ def undo(op_id: int, db: Session = Depends(get_db), client=Depends(get_drive_cli
 
 def get_ai_client():
     """Dependency so tests can substitute a fake Anthropic client."""
-    return cc.anthropic_client()
+    try:
+        return cc.anthropic_client()
+    except Exception as err:  # e.g. Foundry without a resource or key
+        raise HTTPException(400, f"Claude is not set up on the backend: {err}")
 
 
 def _content_status(db: Session, account_id: int, source: str) -> ContentStatus:

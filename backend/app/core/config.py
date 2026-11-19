@@ -17,7 +17,18 @@ class Settings(BaseSettings):
     # Organizer content classification (optional). The Anthropic SDK also finds credentials on its own
     # (ANTHROPIC_API_KEY in the environment or an `ant auth login` profile); this is for a key in .env.
     anthropic_api_key: str = ""
+    # "anthropic" (the Claude API) or "foundry" (Claude in Microsoft Foundry). On Foundry the model is the
+    # deployment name, and the resource (the <resource> in https://<resource>.services.ai.azure.com) or a full
+    # base URL is required along with the key.
+    classifier_provider: str = "anthropic"
     classifier_model: str = "claude-opus-5-5"
+    # Thinking effort for the classification requests; empty leaves it out. It is left out automatically for
+    # models that do not take it (Claude Haiku 4.5, Sonnet 4.5); set it empty yourself for a Foundry deployment
+    # of such a model whose name does not say which model it is.
+    classifier_effort: str = "low"
+    anthropic_foundry_api_key: str = ""
+    anthropic_foundry_resource: str = ""
+    anthropic_foundry_base_url: str = ""
 
 
 settings = Settings()

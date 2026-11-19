@@ -74,7 +74,12 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 Put the output in `TOKEN_ENCRYPTION_KEY`. Never commit `backend/.env`.
 
-To sort files by content, also set `ANTHROPIC_API_KEY` (from the [Claude Console](https://platform.claude.com/)). `CLASSIFIER_MODEL` defaults to `claude-opus-5-5`. Each analysis run is billed to that key: files are sent eight per request, and each file is read again only after it changes.
+To sort files by content, also give the backend access to Claude, in one of two ways:
+
+- **Claude API**: set `ANTHROPIC_API_KEY` (from the [Claude Console](https://platform.claude.com/)). `CLASSIFIER_MODEL` defaults to `claude-opus-5-5`.
+- **Microsoft Foundry**: set `CLASSIFIER_PROVIDER=foundry`, `CLASSIFIER_MODEL` to your deployment name (for example `claude-haiku-4-5`), `ANTHROPIC_FOUNDRY_RESOURCE` (the `<resource>` in `https://<resource>.services.ai.azure.com`) and `ANTHROPIC_FOUNDRY_API_KEY`.
+
+Requests use low thinking effort where the model supports it (Claude Haiku 4.5 and Sonnet 4.5 do not; if your deployment of one of them has another name, set `CLASSIFIER_EFFORT=` to leave effort out). Each analysis run is billed to that account: files are sent eight per request, and each file is read again only after it changes.
 
 ### Run with Docker
 

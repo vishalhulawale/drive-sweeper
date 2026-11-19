@@ -114,8 +114,10 @@ function ContentAnalysis({ source, canRead }: { source: string; canRead: boolean
     >
       <div className="flex flex-col gap-4">
         {!s.configured && (
-          <Alert type="info" header="Anthropic API key needed">
-            Set <code>ANTHROPIC_API_KEY</code> in <code>backend/.env</code> and restart the backend to analyze contents.
+          <Alert type="info" header="Claude is not set up">
+            Set <code>ANTHROPIC_API_KEY</code>, or the Microsoft Foundry settings (<code>CLASSIFIER_PROVIDER=foundry</code>,{' '}
+            <code>ANTHROPIC_FOUNDRY_RESOURCE</code>, <code>ANTHROPIC_FOUNDRY_API_KEY</code>), in <code>backend/.env</code> and restart
+            the backend to analyze contents.
           </Alert>
         )}
         {s.running ? (

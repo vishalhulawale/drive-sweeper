@@ -133,16 +133,56 @@ def needs_topic(f) -> bool:
     return f.topic_key != topic_key(f) or f.topic_attempted_at is None
 
 
+def _foundry() -> bool:
+    return settings.classifier_provider.strip().lower() == "foundry"
+
+
+def _setting_or_env(value: str, env: str) -> str | None:
+    return value or os.environ.get(env) or None
+
+
 def configured() -> bool:
-    """Whether an Anthropic credential is visible. An `ant auth login` profile also works but cannot be
-    detected cheaply, so this only drives a hint in the UI; a missing credential fails the run clearly."""
+    """Whether credentials for the chosen provider are visible. On the Claude API an `ant auth login` profile
+    also works but cannot be detected cheaply, so this only drives a hint in the UI; a missing credential
+    fails the run with a clear error."""
+    if _foundry():
+        key = _setting_or_env(settings.anthropic_foundry_api_key, "ANTHROPIC_FOUNDRY_API_KEY")
+        where = (_setting_or_env(settings.anthropic_foundry_resource, "ANTHROPIC_FOUNDRY_RESOURCE")
+                 or _setting_or_env(settings.anthropic_foundry_base_url, "ANTHROPIC_FOUNDRY_BASE_URL"))
+        return bool(key and where)
     return bool(settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
 
 
 def anthropic_client():
     import anthropic
 
+    if _foundry():
+        base_url = _setting_or_env(settings.anthropic_foundry_base_url, "ANTHROPIC_FOUNDRY_BASE_URL")
+        return anthropic.AnthropicFoundry(
+            api_key=_setting_or_env(settings.anthropic_foundry_api_key, "ANTHROPIC_FOUNDRY_API_KEY"),
+            # The SDK takes a resource or a base URL, not both.
+            resource=None if base_url else _setting_or_env(settings.anthropic_foundry_resource, "ANTHROPIC_FOUNDRY_RESOURCE"),
+            base_url=base_url,
+        )
     return anthropic.Anthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else anthropic.Anthropic()
+
+
+# Models that reject the effort parameter. A Foundry deployment may have any name, so this matches on the
+# model id inside it; CLASSIFIER_EFFORT= (empty) covers a deployment whose name does not include it.
+_NO_EFFORT_MODELS = ("claude-haiku-4-5", "claude-sonnet-4-5")
+
+
+def request_options() -> dict:
+    """Per-model and per-provider request fields: effort, and refusal fallbacks (Claude API only)."""
+    model = settings.classifier_model
+    opts: dict = {}
+    effort = settings.classifier_effort.strip()
+    if effort and not any(m in model for m in _NO_EFFORT_MODELS):
+        opts["output_config"] = {"effort": effort}
+    if not _foundry() and model in _FALLBACK_MODELS:
+        opts["betas"] = ["server-side-fallback-2026-07-01"]
+        opts["fallbacks"] = "default"
+    return opts
 
 
 # ---- excerpts ---------------------------------------------------------------------------------------
@@ -244,18 +284,14 @@ def classify_batch(ai, system: str, items: list[tuple], parent_names: dict) -> d
     for n, (f, ex) in enumerate(items, 1):
         content += _file_blocks(n, f, ex, parent_names.get(f.parent_folder_id))
     content.append({"type": "text", "text": f"Choose a folder for each of the {len(items)} files above."})
-    kwargs = {}
-    if settings.classifier_model in _FALLBACK_MODELS:
-        kwargs = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
     response = ai.beta.messages.parse(
         model=settings.classifier_model,
         max_tokens=4000,
         system=system,
         cache_control={"type": "ephemeral"},   # the system prompt repeats across a run's requests
-        output_config={"effort": "low"},       # short classification; deeper thinking adds little here
         output_format=TopicResult,
         messages=[{"role": "user", "content": content}],
-        **kwargs,
+        **request_options(),                   # low effort where supported: a short classification
     )
     if response.stop_reason == "refusal":
         log.warning("Claude declined to classify a batch of %d files", len(items))

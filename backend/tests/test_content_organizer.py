@@ -140,7 +140,12 @@ class FakeAI:
         return SimpleNamespace(stop_reason="end_turn", parsed_output=cc.TopicResult(files=files))
 
 
-def test_request_shape():
+def test_request_shape(monkeypatch):
+    from app.core.config import settings
+
+    for name, value in (("classifier_provider", "anthropic"), ("classifier_model", "claude-opus-5-5"),
+                        ("classifier_effort", "low")):
+        monkeypatch.setattr(settings, name, value)  # independent of the developer's backend/.env
     ai = FakeAI({"bill.pdf": ("Medical", "high")})
     rows = [(f("a", "bill.pdf"), cc.Excerpt("text", text="Invoice from City Hospital")),
             (f("b", "IMG_1.jpg", mime="image/jpeg"), cc.Excerpt("image", data=b"\xff\xd8", media_type="image/jpeg"))]
@@ -152,6 +157,39 @@ def test_request_shape():
     assert "- Hospital" in call["system"] and "Medical" in call["system"]
     types = [b["type"] for b in call["messages"][0]["content"]]
     assert types.count("image") == 1 and "<content>" in call["messages"][0]["content"][0]["text"]
+
+
+def test_request_options_per_model_and_provider(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "classifier_provider", "foundry")
+    monkeypatch.setattr(settings, "classifier_model", "claude-haiku-4-5")
+    monkeypatch.setattr(settings, "classifier_effort", "low")
+    assert cc.request_options() == {}                    # Haiku 4.5 takes no effort; Foundry has no fallbacks
+    monkeypatch.setattr(settings, "classifier_model", "claude-opus-5-5")
+    assert cc.request_options() == {"output_config": {"effort": "low"}}
+    monkeypatch.setattr(settings, "classifier_effort", "")
+    assert cc.request_options() == {}                      # a custom deployment name: effort turned off
+    monkeypatch.setattr(settings, "classifier_provider", "anthropic")
+    assert cc.request_options()["fallbacks"] == "default"
+
+
+def test_foundry_client(monkeypatch):
+    import anthropic
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "classifier_provider", "Foundry")
+    monkeypatch.setattr(settings, "anthropic_foundry_api_key", "k")
+    monkeypatch.setattr(settings, "anthropic_foundry_resource", "")
+    monkeypatch.setattr(settings, "anthropic_foundry_base_url", "")
+    monkeypatch.delenv("ANTHROPIC_FOUNDRY_RESOURCE", raising=False)
+    monkeypatch.delenv("ANTHROPIC_FOUNDRY_BASE_URL", raising=False)
+    assert not cc.configured()
+    monkeypatch.setattr(settings, "anthropic_foundry_resource", "my-res")
+    assert cc.configured()
+    client = cc.anthropic_client()
+    assert isinstance(client, anthropic.AnthropicFoundry) and "my-res.services.ai.azure.com" in str(client.base_url)
 
 
 def test_refusal_leaves_files_unclassified():
