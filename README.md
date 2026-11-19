@@ -140,6 +140,19 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - UI redesign phase 5: MUI removed, polish
+- Material UI and Emotion are uninstalled; every page is on Cloudscape (`grep -r "@mui" frontend/src` is empty). Removed the leftover `StatCard`, `BarRow`, `ScanStatusChip` and the MUI theme bridge.
+- Smaller app: Geist is now applied by setting Cloudscape's font variables directly instead of through the runtime theming API. The first-load script went from 1.2 MB to 600 KB (273 KB to 179 KB gzipped); all JavaScript together went from 529 KB to 435 KB gzipped, and pages still load on demand.
+- Checked in dark mode with compact density (dashboard, analytics); treemap labels now follow the theme's text colour so they stay readable on the dark-mode blue.
+- Build, lint and type check pass.
+- **Not yet verified**:
+  - Phone width (390px): the browser window couldn't be resized from here.
+  - Slow-network loading checks.
+  - The backend-down notice (the backend wasn't stopped).
+  - Live cleanup, restore and move flows (these change your Drive).
+  - The type and year charts don't link to filtered Files yet, because Files has no type or year filter.
+- **Restart the backend** to enable the storage treemap (new `folder-tree` endpoint).
+
 ### 2026-11-19 - UI redesign phase 4b: organizer and scan history
 - **Organizer**: a selectable table (nothing pre-selected) sorted by confidence, with a High/Medium badge and score; select it to see why that folder was suggested. "Select high confidence", "Clear" and "Move N files" sit in the table header, and moving asks for confirmation first (files, folders, size). The result shows as a notification instead of a banner. Move history has status indicators and a per-row Undo with its own notice.
 - **Scan history**: a "Files over time" line chart of completed scans (hover for how long each took; times shown when scans are close together), and a table with status indicators and errors in words.

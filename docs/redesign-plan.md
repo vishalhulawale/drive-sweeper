@@ -378,6 +378,8 @@ frontend/src/
 
 ## 12. Phases
 
+Status 2026-11-19: phases 0 to 5 are done; open checks are listed in the README phase 5 entry.
+
 Each phase builds, runs, and is committed and pushed with a README progress-log entry.
 
 | Phase | Scope | Done when |

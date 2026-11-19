@@ -154,7 +154,7 @@ export default function StorageTreemap({ folder, onFolderChange }: { folder: str
                     display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'flex-start',
                     cursor: tile.has_subfolders ? 'zoom-in' : 'default',
                     background: tile.loose ? colorBorderDividerDefault : colorChartsPaletteCategorical1,
-                    color: tile.loose ? colorTextBodyDefault : '#0f141a',
+                    color: colorTextBodyDefault,
                     opacity: active && active !== tile.google_file_id ? 0.78 : 1,
                     ['--dc-focus' as string]: colorBorderItemFocused,
                   }}
