@@ -30,3 +30,20 @@ export interface FolderUsage {
 export interface LargestFiles {
   items: DriveFileItem[]
 }
+
+export interface FolderNode {
+  google_file_id: string
+  name: string
+  bytes: number
+  files: number
+  has_subfolders: boolean
+}
+
+export interface FolderTree {
+  folder_id: string | null
+  name: string
+  bytes: number
+  children: FolderNode[]
+  loose_bytes: number
+  loose_files: number
+}

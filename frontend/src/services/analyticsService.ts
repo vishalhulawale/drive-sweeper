@@ -1,4 +1,4 @@
-import type { FolderUsage, LargestFiles, Overview, YearUsage } from '../types/analytics'
+import type { FolderTree, FolderUsage, LargestFiles, Overview, YearUsage } from '../types/analytics'
 import { api } from './api'
 
 export const analyticsService = {
@@ -8,4 +8,6 @@ export const analyticsService = {
     api.get<LargestFiles>('/api/analytics/largest-files', { params: { limit } }).then((r) => r.data),
   largestFolders: (limit = 25) =>
     api.get<FolderUsage[]>('/api/analytics/largest-folders', { params: { limit } }).then((r) => r.data),
+  folderTree: (folder: string | null) =>
+    api.get<FolderTree>('/api/analytics/folder-tree', { params: { folder: folder ?? undefined } }).then((r) => r.data),
 }

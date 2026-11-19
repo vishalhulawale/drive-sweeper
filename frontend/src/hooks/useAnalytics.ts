@@ -7,3 +7,5 @@ export const useLargestFiles = () =>
   useQuery({ queryKey: ['an-files'], queryFn: () => analyticsService.largestFiles(25) })
 export const useLargestFolders = () =>
   useQuery({ queryKey: ['an-folders'], queryFn: () => analyticsService.largestFolders(25) })
+export const useFolderTree = (folder: string | null) =>
+  useQuery({ queryKey: ['an-tree', folder], queryFn: () => analyticsService.folderTree(folder), staleTime: 60_000, retry: 1 })

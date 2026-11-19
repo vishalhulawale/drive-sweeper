@@ -34,6 +34,13 @@ table td,
   filter: none;
 }
 
+/* Storage treemap tiles. */
+.dc-tile:focus-visible {
+  outline: 2px solid var(--dc-focus);
+  outline-offset: 1px;
+  z-index: 1;
+}
+
 /* The dashboard space bar fills once on first load. */
 .dc-grow {
   transition: width 600ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 120ms linear;

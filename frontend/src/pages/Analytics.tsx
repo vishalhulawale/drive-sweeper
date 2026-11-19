@@ -1,112 +1,165 @@
-import Alert from '@mui/material/Alert'
-import Box from '@mui/material/Box'
-import Link from '@mui/material/Link'
-import Paper from '@mui/material/Paper'
-import Stack from '@mui/material/Stack'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
-import Typography from '@mui/material/Typography'
-import { Link as RouterLink } from 'react-router-dom'
-import BarRow from '../components/common/BarRow'
-import StatCard from '../components/dashboard/StatCard'
-import { useByYear, useLargestFiles, useLargestFolders, useOverview } from '../hooks/useAnalytics'
+import Alert from '@cloudscape-design/components/alert'
+import BarChart from '@cloudscape-design/components/bar-chart'
+import Box from '@cloudscape-design/components/box'
+import Container from '@cloudscape-design/components/container'
+import ContentLayout from '@cloudscape-design/components/content-layout'
+import Grid from '@cloudscape-design/components/grid'
+import Header from '@cloudscape-design/components/header'
+import KeyValuePairs from '@cloudscape-design/components/key-value-pairs'
+import Link from '@cloudscape-design/components/link'
+import Skeleton from '@cloudscape-design/components/skeleton'
+import SpaceBetween from '@cloudscape-design/components/space-between'
+import Table from '@cloudscape-design/components/table'
+import { colorBorderDividerDefault, colorChartsPaletteCategorical1 } from '@cloudscape-design/design-tokens'
+import type { ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import StorageTreemap from '../components/charts/StorageTreemap'
+import InfoLink from '../components/common/InfoLink'
+import { AppLink } from '../components/common/RouterLink'
+import { useByYear, useLargestFiles, useOverview } from '../hooks/useAnalytics'
 import { useDuplicateSummary } from '../hooks/useDuplicates'
+import { useNearStatus } from '../hooks/useNear'
 import { errorMessage } from '../services/api'
+import type { DriveFileItem } from '../types/file'
 import { formatBytes, formatDate, friendlyType } from '../utils/format'
 
+const chartStatus = (q: { isError: boolean; data: unknown }) => (q.isError ? 'error' : q.data ? 'finished' : 'loading') as 'error' | 'finished' | 'loading'
+
+/** Size with a small inline bar relative to the largest value in the column. */
+function SizeBar({ bytes, max }: { bytes: number; max: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 160 }}>
+      <div style={{ flex: 1, height: 6, borderRadius: 3, background: colorBorderDividerDefault }}>
+        <div style={{ width: `${max ? Math.max(2, (bytes / max) * 100) : 0}%`, height: '100%', borderRadius: 3, background: colorChartsPaletteCategorical1 }} />
+      </div>
+      <span data-numeric style={{ minWidth: 64, textAlign: 'right' }}>{formatBytes(bytes)}</span>
+    </div>
+  )
+}
+
 export default function Analytics() {
+  const [params, setParams] = useSearchParams()
+  const folder = params.get('folder')
   const overview = useOverview()
   const years = useByYear()
   const files = useLargestFiles()
-  const folders = useLargestFolders()
   const dups = useDuplicateSummary()
+  const near = useNearStatus()
   const o = overview.data
-  const err = overview.error ?? years.error ?? files.error ?? folders.error
+  const v = (ready: unknown, x: ReactNode) => (ready ? x : <Skeleton variant="text-body-m" width="100px" />)
+  const err = overview.error ?? years.error ?? files.error
 
-  const maxCat = Math.max(0, ...(o?.categories.map((c) => c.bytes) ?? []))
-  const maxYear = Math.max(0, ...(years.data?.map((y) => y.bytes) ?? []))
-  const maxFolder = Math.max(0, ...(folders.data?.map((f) => f.bytes) ?? []))
+  const categories = [...(o?.categories ?? [])].filter((c) => c.bytes > 0).sort((a, b) => b.bytes - a.bytes)
+  const largest = files.data?.items ?? []
+  const maxFile = Math.max(0, ...largest.map((f) => f.size ?? 0))
 
   return (
-    <Stack spacing={3}>
-      <Typography variant="h4">Storage analytics</Typography>
-      <Typography color="text.secondary">
-        Based on your last scan. Counts files you own; shared-with-me files do not use your storage. Google
-        Docs, Sheets and Slides take no space.
-      </Typography>
-      {err != null && <Alert severity="error">{errorMessage(err)}</Alert>}
+    <ContentLayout
+      header={
+        <Header
+          variant="h1"
+          info={<InfoLink />}
+          description="Where your storage goes, from your last scan. Counts files you own; shared files and Google Docs, Sheets and Slides use none of your storage."
+        >
+          Storage analytics
+        </Header>
+      }
+    >
+      <SpaceBetween size="l">
+        {err != null && <Alert type="error">{errorMessage(err)}</Alert>}
+        <Container>
+          <KeyValuePairs
+            columns={4}
+            items={[
+              { label: 'Storage used by files', value: v(o, <>{formatBytes(o?.total_bytes)} <Box variant="span" color="text-body-secondary">in {o?.total_files.toLocaleString()} files</Box></>) },
+              { label: 'In Trash (still counts)', value: v(o, <AppLink href="/trash">{formatBytes(o?.trashed_bytes)}</AppLink>) },
+              { label: 'Duplicates you can free', value: v(dups.data, <AppLink href="/duplicates">{formatBytes(dups.data?.potential_savings)}</AppLink>) },
+              { label: 'Similar photos you can free', value: v(near.data, <AppLink href="/similar">Up to {formatBytes(near.data?.potential_savings)}</AppLink>) },
+            ]}
+          />
+        </Container>
 
-      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}>
-        <StatCard label="Storage used by files" value={o ? formatBytes(o.total_bytes) : '…'}
-          hint={o ? `${o.total_files.toLocaleString()} files` : undefined} />
-        <StatCard label="In Trash (still counts)" value={o ? formatBytes(o.trashed_bytes) : '…'}
-          hint={o ? `${o.trashed_files.toLocaleString()} files; empty Trash in Drive to free it` : undefined} />
-        <StatCard label="Reclaimable duplicates" value={dups.data ? formatBytes(dups.data.potential_savings) : '…'}
-          hint={dups.data ? `${dups.data.groups.toLocaleString()} groups` : undefined} />
-      </Box>
+        <Container
+          header={
+            <Header variant="h2" description="Area shows storage. Click a folder to look inside; arrow keys move between folders, Backspace goes up.">
+              Storage by folder
+            </Header>
+          }
+        >
+          <StorageTreemap
+            folder={folder}
+            onFolderChange={(id) => {
+              const next = new URLSearchParams(params)
+              if (id) next.set('folder', id)
+              else next.delete('folder')
+              setParams(next)
+            }}
+          />
+        </Container>
 
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Typography variant="h6">By type</Typography>
-        {o?.categories.map((c) => (
-          <BarRow key={c.category} label={c.category} bytes={c.bytes} max={maxCat}
-            detail={`${c.files.toLocaleString()} files`} />
-        ))}
-      </Paper>
+        <Grid gridDefinition={[{ colspan: { default: 12, m: 6 } }, { colspan: { default: 12, m: 6 } }]}>
+          <Container header={<Header variant="h2">By file type</Header>}>
+            <BarChart
+              height={240}
+              horizontalBars
+              hideFilter
+              hideLegend
+              statusType={chartStatus(overview)}
+              loadingText="Loading storage by type"
+              errorText="Couldn't load storage by type."
+              xScaleType="categorical"
+              series={categories.length ? [{
+                title: 'Storage', type: 'bar', color: colorChartsPaletteCategorical1,
+                data: categories.map((c) => ({ x: c.category, y: c.bytes })), valueFormatter: (b) => formatBytes(b),
+              }] : []}
+              detailPopoverSeriesContent={({ y }) => ({ key: 'Storage', value: formatBytes(y) })}
+              detailPopoverFooter={(x) => {
+                const c = categories.find((k) => k.category === x)
+                return c ? <Box fontSize="body-s" color="text-body-secondary">{c.files.toLocaleString()} files</Box> : null
+              }}
+              yTickFormatter={(b) => formatBytes(b)}
+              ariaLabel="Storage used by file type"
+              empty={<Box textAlign="center" color="text-body-secondary">No files scanned yet</Box>}
+            />
+          </Container>
+          <Container header={<Header variant="h2">By year created</Header>}>
+            <BarChart
+              height={240}
+              hideFilter
+              hideLegend
+              statusType={chartStatus(years)}
+              loadingText="Loading storage by year"
+              errorText="Couldn't load storage by year."
+              xScaleType="categorical"
+              series={years.data?.length ? [{
+                title: 'Storage', type: 'bar', color: colorChartsPaletteCategorical1,
+                data: years.data.map((y) => ({ x: String(y.year), y: y.bytes })), valueFormatter: (b) => formatBytes(b),
+              }] : []}
+              detailPopoverFooter={(x) => {
+                const y = years.data?.find((k) => String(k.year) === x)
+                return y ? <Box fontSize="body-s" color="text-body-secondary">{y.files.toLocaleString()} files</Box> : null
+              }}
+              yTickFormatter={(b) => formatBytes(b)}
+              ariaLabel="Storage used by the year files were created"
+              empty={<Box textAlign="center" color="text-body-secondary">No files scanned yet</Box>}
+            />
+          </Container>
+        </Grid>
 
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Typography variant="h6">By year created</Typography>
-        {years.data?.map((y) => (
-          <BarRow key={y.year} label={String(y.year)} bytes={y.bytes} max={maxYear}
-            detail={`${y.files.toLocaleString()} files`} />
-        ))}
-      </Paper>
-
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Typography variant="h6">Largest folders</Typography>
-        <Typography variant="caption" color="text.secondary">Including everything inside them.</Typography>
-        {folders.data?.map((f) => (
-          <Stack key={f.google_file_id} direction="row" sx={{ alignItems: 'center' }}>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <BarRow label={f.name} bytes={f.bytes} max={maxFolder} detail={`${f.files.toLocaleString()} files`} />
-            </Box>
-            <Link component={RouterLink} to={`/files?folder=${encodeURIComponent(f.google_file_id)}`} sx={{ ml: 2 }}>
-              Open
-            </Link>
-          </Stack>
-        ))}
-      </Paper>
-
-      <Typography variant="h6">Largest files</Typography>
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell>Created</TableCell>
-              <TableCell align="right">Size</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {files.data?.items.map((f) => (
-              <TableRow key={f.google_file_id}>
-                <TableCell sx={{ maxWidth: 420 }}>
-                  <Link href={f.web_view_link ?? undefined} target="_blank" rel="noreferrer" underline="hover" noWrap>
-                    {f.name}
-                  </Link>
-                </TableCell>
-                <TableCell>{friendlyType(f.mime_type)}</TableCell>
-                <TableCell>{formatDate(f.created_time)}</TableCell>
-                <TableCell align="right">{formatBytes(f.size)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Stack>
+        <Table<DriveFileItem>
+          trackBy="google_file_id"
+          items={largest}
+          loading={files.isPending}
+          loadingText="Loading largest files"
+          header={<Header counter={files.data ? `(${largest.length})` : undefined} description="The single files worth looking at first.">Largest files</Header>}
+          columnDefinitions={[
+            { id: 'name', header: 'Name', isRowHeader: true, cell: (f) => <Link href={f.web_view_link ?? undefined} external externalIconAriaLabel="(opens in Google Drive)">{f.name}</Link> },
+            { id: 'type', header: 'Type', cell: (f) => friendlyType(f.mime_type) },
+            { id: 'created', header: 'Created', cell: (f) => formatDate(f.created_time) },
+            { id: 'size', header: 'Size', cell: (f) => <SizeBar bytes={f.size ?? 0} max={maxFile} /> },
+          ]}
+        />
+      </SpaceBetween>
+    </ContentLayout>
   )
 }

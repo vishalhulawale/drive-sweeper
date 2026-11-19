@@ -140,6 +140,12 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - UI redesign phase 4a: files and storage analytics
+- **Files**: a full-page Cloudscape table. Search, the Trash toggle, folder, sort and page all live in the URL, so back/forward and shared links work. Folder path as breadcrumbs above the table, "Organize this folder" in the page header, and a preferences panel (files per page, visible columns including Created, wrap long names), remembered in this browser.
+- **Storage analytics**: a summary row (storage used, Trash, duplicates and similar photos you can free, each linking to its page), then a **folder treemap** where area shows storage. Click a folder (or press Enter) to look inside, use the path or "Up one level" (or Backspace) to go back, and arrow keys to move between folders; hovering or focusing a folder shows its size, share and file count with "Show files". The grey tile is files sitting directly in the folder. A Table view gives the same numbers. The folder you're viewing is in the URL.
+- Storage by type and by year are now bar charts with hover details; Largest files shows a size bar per row.
+- New backend endpoint `GET /api/analytics/folder-tree?folder=<id>` (one level of folders with total sizes, plus files directly in the folder), with tests. **Restart the backend** to enable the treemap; until then it shows a retry message.
+
 ### 2026-11-19 - UI redesign phase 3: cleanup and trash
 - **Cleanup** rebuilt on Cloudscape. The header's main action names the count ("Move 214 files to Trash"). **Ready to move to Trash** now lists every marked file (it used to stop at 100) with search, sorting and pagination, and an empty state linking to Duplicates and Similar photos. Groups that can't be cleaned up as marked are summarised in one warning with the reasons in an expandable section.
 - The confirmation dialog shows files, size and groups. Progress runs in the notification bar on every page (from phase 1), so the page's own progress banner is gone; a result notice links back to the history.
