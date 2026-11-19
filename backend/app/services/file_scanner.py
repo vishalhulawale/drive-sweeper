@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.models import ScanJob
+from app.models import ScanJob, SyncState
 from app.repositories import drive_file_repository as files_repo
 from app.services.google_drive import DriveClient, DriveError, InvalidPageToken
 
@@ -55,6 +55,17 @@ def _is_cancelled(db: Session, job: ScanJob) -> bool:
     return job.status == "cancelled"
 
 
+def _publish_baseline(db: Session, job: ScanJob) -> None:
+    """A complete scan makes the inventory current as of the token taken when it started."""
+    state = db.query(SyncState).filter_by(account_id=job.account_id).one_or_none()
+    if state is None:
+        state = SyncState(account_id=job.account_id)
+        db.add(state)
+    state.changes_page_token = job.changes_start_token
+    state.last_sync_at = job.completed_at
+    state.sync_status = "idle"
+
+
 def run_scan(db: Session, client: DriveClient, job: ScanJob) -> ScanJob:
     """Run (or resume) a scan job to completion, cancellation, or failure."""
     job.status = "running"
@@ -62,6 +73,11 @@ def run_scan(db: Session, client: DriveClient, job: ScanJob) -> ScanJob:
         # Fresh scan: stamp start with the app clock (same clock as last_scanned_at) so the stale
         # sweep never depends on DB-server clock drift. Resumed scans keep the original start.
         job.started_at = datetime.now(timezone.utc)
+        try:
+            job.changes_start_token = client.get_start_page_token()
+        except DriveError as err:  # the scan still works; quick sync just stays unavailable
+            log.warning("Scan %s: could not get Changes baseline (%s)", job.id, err)
+            job.changes_start_token = None
     job.error_message = None
     job.completed_at = None
     db.commit()
@@ -102,6 +118,8 @@ def run_scan(db: Session, client: DriveClient, job: ScanJob) -> ScanJob:
         job.total_files = job.processed_files
         job.status = "completed"
         job.completed_at = datetime.now(timezone.utc)
+        if job.changes_start_token:
+            _publish_baseline(db, job)
         db.commit()
         log.info("Scan %s completed: %d files, %d stale rows removed", job.id, job.processed_files, removed)
     except Exception as exc:

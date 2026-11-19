@@ -16,6 +16,8 @@ class ScanJob(Base):
     total_files: Mapped[int | None] = mapped_column(Integer, nullable=True)
     processed_files: Mapped[int] = mapped_column(Integer, default=0)
     next_page_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Changes API baseline, taken BEFORE listing starts so edits made during the scan are not missed.
+    changes_start_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -35,6 +35,9 @@ class FakeClient:
         self.pages, self.failures, self.bad_tokens = pages, failures or {}, set(bad_tokens)
         self.calls = []
 
+    def get_start_page_token(self):
+        return "baseline-1"
+
     def list_files_page(self, token=None):
         self.calls.append(token)
         n = len(self.calls)

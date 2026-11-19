@@ -3,6 +3,7 @@ import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ScanPanel from '../components/dashboard/ScanPanel'
+import SyncPanel from '../components/dashboard/SyncPanel'
 import StatCard from '../components/dashboard/StatCard'
 import { useInventorySummary } from '../hooks/useFiles'
 import { useScans } from '../hooks/useScan'
@@ -21,6 +22,7 @@ export default function Dashboard() {
     <Stack spacing={3}>
       <Typography variant="h4">Dashboard</Typography>
       <ScanPanel />
+      <SyncPanel scanning={scanning} />
       {summary.isError && <Alert severity="error">{errorMessage(summary.error)}</Alert>}
       <Box
         sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}

@@ -92,7 +92,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 3 | Manual cleanup (Trash, history, restore) | Built and tested with a fake Drive; needs you to grant the Trash permission and try it on a small selection |
 | 4 | Storage analytics | Done (overview, by type, by year, largest folders and files) |
 | 5 | Smart file organizer | Built and tested with a fake Drive; needs you to try a few moves on the real Drive |
-| 6 | Incremental sync (Changes API) | Not started |
+| 6 | Incremental sync (Changes API) | Done and verified on the real Drive |
 | 7 | Advanced features | Not started |
 
 ### Phase 1 milestones
@@ -130,6 +130,15 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-19 - Phase 6: incremental sync (Changes API)
+- A full scan now takes a Changes bookmark (`getStartPageToken`) **before** it starts listing, so edits made during the scan are not missed, and publishes it to `sync_state` only when the scan completes (migration `b7d2e9a1c4f3`, `scan_jobs.changes_start_token`). If the bookmark call fails the scan still works and quick sync simply stays unavailable; an existing bookmark is never overwritten by a failed or partial scan.
+- `services/sync_service.py`: `POST /api/sync` replays everything changed since the bookmark. Each page of changes and the advanced bookmark are saved in one transaction, so an interrupted sync resumes where it stopped and never skips changes; applying changes is idempotent. Within a page the last change per file wins. Removed files are deleted locally, trashed files are kept and flagged, new and edited files are upserted. If Google rejects the bookmark as expired, sync reports that a full scan is needed (409). Refused while a full scan is running. Duplicate groups are rebuilt afterwards (your keep/trash choices are kept). `GET /api/sync/status` reports availability and last sync time. Uses only the read-only scope.
+- Verified on the real Drive: after one full scan (29,210 files, baseline stored), the first sync took about 3 s and applied 0 updates and 2 removals; a second sync straight after took about 1 s and found nothing. Compare with about 2 min 10 s for a full scan.
+- Changes the app makes itself (Trash, moves) also come back through the feed; applying them is harmless because upserts are idempotent.
+- Dashboard: new **Quick sync** card with Sync now and last-synced time; it is disabled until a full scan has set the baseline, and while a scan runs. Stats, duplicates, analytics and organizer suggestions refresh after a sync.
+- Tests: 67 backend tests passing (9 new, using a fake Changes feed). Frontend typecheck, lint and build clean. The dashboard card has not been checked visually.
+- Not built: automatic background syncing on a timer. Sync runs when you click it.
 
 ### 2026-11-19 - Phase 5: smart file organizer (suggest, move, undo)
 - Scope you chose: suggest and move loose files into your **existing** folders. `services/organizer_service.py` describes each folder (at least 5 direct files) by its file types, the span of its modification dates and its filename patterns, then matches a loose file to the folder it most resembles. Score = 35% same-type share + 40% date fit + 25% name-pattern fit; a file is only suggested at 60% or more (80% is shown as high confidence). Metadata only, deterministic, and every suggestion lists its reasons (hover the confidence chip).

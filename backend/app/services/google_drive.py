@@ -106,3 +106,23 @@ class DriveClient:
             fileId=file_id, addParents=add, removeParents=",".join(remove_parents) or None, fields=FILE_FIELDS
         )
         return self._execute(request)
+
+    def get_start_page_token(self) -> str:
+        """Bookmark for 'now' in the Changes feed."""
+        return self._execute(self._service.changes().getStartPageToken(supportsAllDrives=False))["startPageToken"]
+
+    def list_changes_page(self, page_token: str) -> tuple[list[dict], str | None, str | None]:
+        """One page of changes since page_token. Returns (changes, next_page_token, new_start_token).
+        Exactly one of the two tokens is set: next_page_token while more pages remain, else the
+        new_start_token to store for next time."""
+        request = self._service.changes().list(
+            pageToken=page_token,
+            pageSize=PAGE_SIZE,
+            fields=f"nextPageToken,newStartPageToken,changes(fileId,removed,file({FILE_FIELDS}))",
+            spaces="drive",
+            includeItemsFromAllDrives=False,
+            supportsAllDrives=False,
+            includeRemoved=True,
+        )
+        result = self._execute(request, page_token=page_token)
+        return result.get("changes", []), result.get("nextPageToken"), result.get("newStartPageToken")
