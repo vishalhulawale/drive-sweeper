@@ -131,6 +131,11 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Fix: a file in two groups could be queued twice or trash another group's kept copy
+- A file can be in an exact-duplicate group and a similar-photos group at once (58 files on your Drive). The cleanup plan handled each group on its own, so such a file could be queued twice, and one group could keep a file that another group was trashing. Example: t1 is kept in the similar group (so x is trashed) while the exact group trashes t1, leaving no copy of x.
+- `cleanup_service.build_plan` now decides globally: a file marked Trash in any group never counts as a kept copy, every file is queued at most once, and a group whose remaining copies are all being trashed is blocked ("keep at least one").
+- Your current plan has nothing selected, so nothing was affected. Tests: 92 backend tests passing (1 new; it fails on the old code with t2 queued twice and x queued).
+
 ### 2026-11-19 - Fix: similar-photo groups chained unrelated photos together
 - Grouping joined any two photos within 4 bits, so A~B~C landed in one group even when A and C were far apart. On your Drive this produced groups of 60, 54 and 44 photos, with members up to 16 bits from the suggested keeper, so "Trash all but the best" could have trashed photos that only resembled a neighbour.
 - `perceptual.cluster` now splits each connected set around centres: the best copy (largest, then oldest) takes every unassigned photo within 4 bits of itself, then the next best remaining does the same. The suggested keeper is always the centre, so every photo in a group is within 4 bits of the photo you keep, and each photo is in one group only.

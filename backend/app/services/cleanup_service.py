@@ -47,15 +47,24 @@ def build_plan(db: Session, account_id: int) -> dict:
         g = groups.setdefault(group.id, {"group": group, "trash": [], "keep": []})
         (g["trash"] if entry.user_selected_action == "trash" else g["keep"]).append(f)
 
-    items, blocked = [], []
+    # A file can sit in more than one group (an exact group and a similar-photos group). Decide
+    # globally: a file marked Trash in ANY group is going, so it can never count as another group's
+    # kept copy, and it is queued only once.
+    doomed = {f.id for g in groups.values() for f in g["trash"]}
+    items, blocked, queued = [], [], set()
     for gid, g in groups.items():
         if not g["trash"]:
             continue
-        if not g["keep"]:
-            blocked.append({"group_id": gid, "reason": "Every copy is marked Trash; keep at least one."})
+        keepers = [f for f in g["keep"] if f.id not in doomed]
+        if not keepers:
+            blocked.append({"group_id": gid, "reason": "Every copy is marked Trash (here or in another group); "
+                                                       "keep at least one."})
             continue
         for f in g["trash"]:
-            items.append({"group_id": gid, "file": f, "keeper": g["keep"][0], "md5": g["group"].content_hash})
+            if f.id in queued:
+                continue
+            queued.add(f.id)
+            items.append({"group_id": gid, "file": f, "keeper": keepers[0], "md5": g["group"].content_hash})
     return {
         "items": items,
         "blocked": blocked,
