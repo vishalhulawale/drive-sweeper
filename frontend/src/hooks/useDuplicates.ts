@@ -6,10 +6,10 @@ export function useDuplicateSummary() {
   return useQuery({ queryKey: ['dup-summary'], queryFn: duplicateService.summary })
 }
 
-export function useDuplicateGroups(sort: DuplicateSort, page: number, pageSize = 20) {
+export function useDuplicateGroups(sort: DuplicateSort, page: number, pageSize = 20, kind: 'exact' | 'near' = 'exact') {
   return useQuery({
-    queryKey: ['dup-groups', sort, page, pageSize],
-    queryFn: () => duplicateService.list(sort, page, pageSize),
+    queryKey: ['dup-groups', kind, sort, page, pageSize],
+    queryFn: () => duplicateService.list(sort, page, pageSize, kind),
     placeholderData: keepPreviousData,
   })
 }

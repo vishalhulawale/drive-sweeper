@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models import DriveFile, DuplicateGroup, DuplicateGroupFile
 
 GAPPS = "application/vnd.google-apps."
+EXACT = "exact"
 
 
 def _eligible(account_id: int):
@@ -33,10 +34,12 @@ def rebuild(db: Session, account_id: int) -> dict:
         for row in db.execute(
             select(DuplicateGroupFile.drive_file_id, DuplicateGroupFile.user_selected_action)
             .join(DuplicateGroup, DuplicateGroup.id == DuplicateGroupFile.duplicate_group_id)
-            .where(DuplicateGroup.account_id == account_id, DuplicateGroupFile.user_selected_action.is_not(None))
+            .where(DuplicateGroup.account_id == account_id, DuplicateGroup.detection_type == EXACT,
+                   DuplicateGroupFile.user_selected_action.is_not(None))
         )
     }
-    db.execute(delete(DuplicateGroup).where(DuplicateGroup.account_id == account_id))
+    db.execute(delete(DuplicateGroup).where(DuplicateGroup.account_id == account_id,
+                                            DuplicateGroup.detection_type == EXACT))
 
     keys = db.execute(
         select(DriveFile.md5_checksum, DriveFile.size)
@@ -76,12 +79,21 @@ def rebuild(db: Session, account_id: int) -> dict:
     return summary(db, account_id)
 
 
+def refresh_all(db: Session, account_id: int) -> None:
+    """Rebuild exact groups and re-group near-duplicates from stored fingerprints (both keep the
+    user's choices). Call after anything that changes which files are live."""
+    from app.services import near_duplicate_service  # local import: it depends on this package's models
+
+    rebuild(db, account_id)
+    near_duplicate_service.detect(db, account_id)
+
+
 def summary(db: Session, account_id: int) -> dict:
     groups, files, savings = db.execute(
         select(
             func.count(),
             func.coalesce(func.sum(DuplicateGroup.file_count), 0),
             func.coalesce(func.sum(DuplicateGroup.potential_savings), 0),
-        ).where(DuplicateGroup.account_id == account_id)
+        ).where(DuplicateGroup.account_id == account_id, DuplicateGroup.detection_type == EXACT)
     ).one()
     return {"groups": groups, "duplicate_files": int(files), "potential_savings": int(savings)}

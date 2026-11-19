@@ -101,7 +101,7 @@ def sync(db: Session, account_id: int, client) -> dict:
         raise
 
     if updated or removed:
-        duplicate_detector.rebuild(db, account_id)  # keeps the user's keep/trash choices
+        duplicate_detector.refresh_all(db, account_id)  # keeps the user's keep/trash choices
     log.info("Sync: %d updated, %d removed", updated, removed)
     return {"updated": updated, "removed": removed, "last_sync_at": get_state(db, account_id).last_sync_at}
 

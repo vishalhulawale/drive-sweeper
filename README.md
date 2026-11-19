@@ -93,7 +93,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 4 | Storage analytics | Done (overview, by type, by year, largest folders and files) |
 | 5 | Smart file organizer | Built and tested with a fake Drive; needs you to try a few moves on the real Drive |
 | 6 | Incremental sync (Changes API) | Done and verified on the real Drive |
-| 7 | Advanced features | In progress: automatic sync done; near-duplicate photos and Trash overview next |
+| 7 | Advanced features | In progress: automatic sync and near-duplicate photos done; Trash overview next |
 
 ### Phase 1 milestones
 
@@ -130,6 +130,15 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-19 - Phase 7b: near-duplicate (similar) photos
+- Finds photos that look alike but are not byte-identical (resized, re-saved, lightly edited). `services/perceptual.py`: dHash fingerprint (64 bits from a 9x8 greyscale shrink) and clustering at Hamming distance 4 or less. Candidate pairs come from splitting the hash into 5 chunks (a pigeonhole guarantee that no pair within 4 bits is missed), flat/blank images are ignored, and oversized buckets are skipped so a bad hash cannot cause a runaway comparison.
+- `services/near_duplicate_service.py` + `workers/near_worker.py`: a background job lists your images (metadata), fetches a **64 px thumbnail** of each (a few KB; the original files are never downloaded), hashes it with Pillow (new dependency) and stores the hash on the file row (migration `d5f9a3b7c1e2`). Resumable and committed page by page; a file is only re-hashed if its md5 changed; images under 30 KB are skipped; thumbnails that fail temporarily are retried next run, ones that cannot exist or decode are counted as unreadable. Eight parallel fetches.
+- Groups are stored with `detection_type='near'`, so exact and near groups are kept apart (the exact rebuild no longer touches near groups). Keeper suggestion is the largest file (oldest on a tie); groups whose members are all byte-identical are left to exact detection. Your keep/trash choices survive re-grouping. After a cleanup, restore or sync, both kinds of groups are refreshed.
+- Cleanup safety change: each file is now re-checked against **its own** recorded md5 (and the kept copy against its own), not a group-wide md5, because near duplicates differ byte-wise. For exact groups this is identical to before.
+- API: `/api/near-duplicates` (`status`, `start`, `cancel`, `detect`, `thumbnail/{id}`) and `GET /api/duplicates?kind=near`. Similar photos page: analysis card with progress and Stop/Resume, previews side by side, Keep/Trash toggles, a "Trash all but the best" button, and a link to Cleanup.
+- Live check on your Drive (one listing page and 3 thumbnails only; the full analysis has not been run): the Google calls work and thumbnails are 2-3 KB. **Only 520 of the first 1,000 images have a thumbnail link, so roughly half of your photos cannot be compared this way**; they are reported as unreadable, not silently dropped. The full run covers 12,347 eligible photos (30 KB or larger); at roughly 15 thumbnails per second that is around 15 minutes.
+- Tests: 82 backend tests passing (11 new, using real generated images: resized and re-compressed copies match, different pictures do not). Frontend clean. Not yet checked visually.
 
 ### 2026-11-19 - Phase 7a: automatic background sync
 - Phase 7 scope you chose: automatic background sync, near-duplicate photos, Trash overview. This is the first of the three.

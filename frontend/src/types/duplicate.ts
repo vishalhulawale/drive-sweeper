@@ -17,6 +17,7 @@ export interface DuplicateEntry {
 
 export interface DuplicateGroup {
   id: number
+  detection_type: 'exact' | 'near'
   content_hash: string
   file_count: number
   file_size: number

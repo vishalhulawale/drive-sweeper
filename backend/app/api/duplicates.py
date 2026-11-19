@@ -46,6 +46,7 @@ def _groups_out(db: Session, groups: list[DuplicateGroup]) -> list[DuplicateGrou
     return [
         DuplicateGroupOut(
             id=g.id,
+            detection_type=g.detection_type,
             content_hash=g.content_hash,
             file_count=g.file_count,
             file_size=g.total_size // g.file_count,
@@ -68,6 +69,7 @@ def summary(db: Session = Depends(get_db)):
 
 @router.get("", response_model=DuplicateGroupPage)
 def list_groups(
+    kind: Literal["exact", "near"] = "exact",
     sort: Literal["savings", "count", "size"] = "savings",
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -79,11 +81,12 @@ def list_groups(
         "count": DuplicateGroup.file_count.desc(),
         "size": (DuplicateGroup.total_size / DuplicateGroup.file_count).desc(),
     }[sort]
-    total = db.scalar(select(func.count()).select_from(DuplicateGroup).where(DuplicateGroup.account_id == acc)) or 0
+    total = db.scalar(select(func.count()).select_from(DuplicateGroup).where(
+        DuplicateGroup.account_id == acc, DuplicateGroup.detection_type == kind)) or 0
     groups = list(
         db.scalars(
             select(DuplicateGroup)
-            .where(DuplicateGroup.account_id == acc)
+            .where(DuplicateGroup.account_id == acc, DuplicateGroup.detection_type == kind)
             .order_by(order, DuplicateGroup.id)
             .offset((page - 1) * page_size)
             .limit(page_size)

@@ -34,4 +34,9 @@ class DriveFile(Base):
     is_owned_by_user: Mapped[bool] = mapped_column(Boolean, default=True)
     is_shortcut: Mapped[bool] = mapped_column(Boolean, default=False)
     shortcut_target_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Perceptual (dHash) hex from the Drive thumbnail. phash_md5 records which file contents it was
+    # computed from, so an edited file (new md5) is re-hashed instead of trusted.
+    perceptual_hash: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    phash_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    phash_md5: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

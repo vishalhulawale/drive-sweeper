@@ -6,9 +6,9 @@ import { api } from './api'
 export const duplicateService = {
   summary: () => api.get<DuplicateSummary>('/api/duplicates/summary').then((r) => r.data),
   detect: () => api.post<DuplicateSummary>('/api/duplicates/detect').then((r) => r.data),
-  list: (sort: DuplicateSort, page: number, pageSize: number) =>
+  list: (sort: DuplicateSort, page: number, pageSize: number, kind: 'exact' | 'near' = 'exact') =>
     api
-      .get<DuplicatePage>('/api/duplicates', { params: { sort, page, page_size: pageSize } })
+      .get<DuplicatePage>('/api/duplicates', { params: { kind, sort, page, page_size: pageSize } })
       .then((r) => r.data),
   // Keep the oldest copy in each group and mark the newer copies for Trash (records choices only).
   applySuggestions: (scope: number[] | 'all') =>

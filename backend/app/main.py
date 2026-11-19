@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from contextlib import asynccontextmanager
 
-from app.api import analytics, auth, cleanup, duplicates, files, organizer, scans, sync
+from app.api import analytics, auth, cleanup, duplicates, files, near_duplicates, organizer, scans, sync
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.repositories import scan_repository
@@ -50,6 +50,7 @@ app.include_router(cleanup.router)
 app.include_router(analytics.router)
 app.include_router(organizer.router)
 app.include_router(sync.router)
+app.include_router(near_duplicates.router)
 
 
 @app.get("/api/health")

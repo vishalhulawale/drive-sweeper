@@ -5,6 +5,7 @@ import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import HistoryIcon from '@mui/icons-material/History'
 import PieChartIcon from '@mui/icons-material/PieChart'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary'
 import SettingsIcon from '@mui/icons-material/Settings'
 import AppBar from '@mui/material/AppBar'
 import Box from '@mui/material/Box'
@@ -26,6 +27,7 @@ const NAV: { to: string; label: string; icon: ReactNode }[] = [
   { to: '/files', label: 'Files', icon: <FolderOpenIcon /> },
   { to: '/analytics', label: 'Analytics', icon: <PieChartIcon /> },
   { to: '/duplicates', label: 'Duplicates', icon: <ContentCopyIcon /> },
+  { to: '/similar', label: 'Similar photos', icon: <PhotoLibraryIcon /> },
   { to: '/organizer', label: 'Organizer', icon: <AutoFixHighIcon /> },
   { to: '/cleanup', label: 'Cleanup', icon: <DeleteSweepIcon /> },
   { to: '/scans', label: 'Scan history', icon: <HistoryIcon /> },

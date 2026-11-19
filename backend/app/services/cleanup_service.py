@@ -97,7 +97,7 @@ def prepare(db: Session, account_id: int, expected_count: int) -> list[dict]:
         db.flush()
         jobs.append({
             "op_id": op.id, "file_id": f.id, "keeper_id": item["keeper"].id,
-            "md5": item["md5"], "group_id": item["group_id"],
+            "md5": f.md5_checksum, "keeper_md5": item["keeper"].md5_checksum, "group_id": item["group_id"],
         })
     db.commit()
     return jobs
@@ -118,7 +118,7 @@ def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[Clea
         try:
             gid = job["group_id"]
             if gid not in keeper_ok:
-                keeper_ok[gid] = _check_keeper(client, db.get(DriveFile, job["keeper_id"]), job["md5"])
+                keeper_ok[gid] = _check_keeper(client, db.get(DriveFile, job["keeper_id"]), job["keeper_md5"])
             if keeper_ok[gid]:
                 _finish(db, op, "skipped", keeper_ok[gid])
                 continue
@@ -135,7 +135,7 @@ def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[Clea
             log.warning("Trash failed for %s: %s", f.google_file_id, err)
             _finish(db, op, "failed", str(err))
 
-    duplicate_detector.rebuild(db, account_id)
+    duplicate_detector.refresh_all(db, account_id)
     return ops
 
 
@@ -233,7 +233,7 @@ def restore(db: Session, account_id: int, client, op_id: int) -> CleanupOperatio
     f.trashed = False
     original.status = "restored"
     _finish(db, op, "completed", None)
-    duplicate_detector.rebuild(db, account_id)
+    duplicate_detector.refresh_all(db, account_id)
     return op
 
 

@@ -20,6 +20,7 @@ class DuplicateFileOut(BaseModel):
 
 class DuplicateGroupOut(BaseModel):
     id: int
+    detection_type: str = "exact"
     content_hash: str
     file_count: int
     file_size: int

@@ -9,6 +9,7 @@ import ConnectPage from './pages/ConnectPage'
 import Analytics from './pages/Analytics'
 import Cleanup from './pages/Cleanup'
 import Dashboard from './pages/Dashboard'
+import SimilarPhotos from './pages/SimilarPhotos'
 import Organizer from './pages/Organizer'
 import Duplicates from './pages/Duplicates'
 import FileExplorer from './pages/FileExplorer'
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="files" element={<FileExplorer />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="duplicates" element={<Duplicates />} />
+        <Route path="similar" element={<SimilarPhotos />} />
         <Route path="organizer" element={<Organizer />} />
         <Route path="cleanup" element={<Cleanup />} />
         <Route path="scans" element={<ScanHistory />} />

@@ -6,6 +6,8 @@ set_trashed() (to or from Trash) and move_file() (change folder). It never delet
 import json
 import logging
 import random
+import re
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -52,6 +54,8 @@ def _is_retryable(err: HttpError) -> bool:
 class DriveClient:
     def __init__(self, credentials, sleep: Callable[[float], None] = time.sleep, service: Any = None):
         self._sleep = sleep
+        self._credentials = credentials
+        self._local = threading.local()  # one HTTP connection per thread (httplib2 is not thread-safe)
         if service is not None:  # injected in tests
             self._service = service
         else:
@@ -126,3 +130,39 @@ class DriveClient:
         )
         result = self._execute(request, page_token=page_token)
         return result.get("changes", []), result.get("nextPageToken"), result.get("newStartPageToken")
+
+    # ---- thumbnails (used for near-duplicate photo detection) ----
+
+    def list_image_thumbnails_page(self, page_token: str | None = None) -> tuple[list[dict], str | None]:
+        """One page of your image files with their short-lived thumbnail links."""
+        request = self._service.files().list(
+            q="mimeType contains 'image/' and trashed = false and 'me' in owners",
+            pageSize=PAGE_SIZE,
+            pageToken=page_token,
+            fields="nextPageToken,files(id,thumbnailLink)",
+            spaces="drive",
+            corpora="user",
+        )
+        result = self._execute(request, page_token=page_token)
+        return result.get("files", []), result.get("nextPageToken")
+
+    def get_thumbnail_link(self, file_id: str) -> str | None:
+        return self._execute(self._service.files().get(fileId=file_id, fields="thumbnailLink")).get("thumbnailLink")
+
+    def fetch_thumbnail(self, thumbnail_link: str, size: int = 64) -> bytes:
+        """Download a small preview image (a few KB). The original file is never downloaded."""
+        url = re.sub(r"=s\d+(-c)?$", "", thumbnail_link) + f"=s{size}"
+        http = getattr(self._local, "http", None)
+        if http is None:
+            http = google_auth_httplib2.AuthorizedHttp(self._credentials, http=httplib2.Http(timeout=30))
+            self._local.http = http
+        for attempt in range(1, 4):
+            resp, content = http.request(url, "GET")
+            if resp.status == 200:
+                return content
+            if resp.status in (429, 500, 502, 503) and attempt < 3:
+                self._sleep(2 ** attempt + random.uniform(0, 1))
+                continue
+            raise DriveError(f"Thumbnail request failed with HTTP {resp.status}")
+        raise DriveError("Thumbnail request failed")
+
