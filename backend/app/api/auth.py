@@ -12,8 +12,8 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.get("/google")
-def google_login():
-    url, _state, _verifier = oauth_service.build_authorization_url()
+def google_login(upgrade: str | None = None):
+    url, _state, _verifier = oauth_service.build_authorization_url(upgrade=upgrade == "trash")
     return RedirectResponse(url)
 
 
@@ -23,7 +23,7 @@ def google_callback(request: Request, db: Session = Depends(get_db)):
     if error:
         return RedirectResponse(f"{settings.frontend_origin}/?auth_error={error}")
     state = request.query_params.get("state", "")
-    found, verifier = oauth_service.pop_pending(state)
+    found, verifier, upgrade = oauth_service.pop_pending(state)
     if not found:
         log.warning("OAuth callback with unknown or expired state")
         raise HTTPException(
@@ -32,7 +32,7 @@ def google_callback(request: Request, db: Session = Depends(get_db)):
             "already used). Start again at /api/auth/google.",
         )
     try:
-        oauth_service.complete_authorization(db, str(request.url), state, verifier)
+        oauth_service.complete_authorization(db, str(request.url), state, verifier, upgrade)
     except oauth_service.MissingDriveScope:
         return RedirectResponse(f"{settings.frontend_origin}/?auth_error=missing_drive_scope")
     except Exception:
@@ -45,8 +45,8 @@ def google_callback(request: Request, db: Session = Depends(get_db)):
 def status(db: Session = Depends(get_db)):
     account = oauth_service.get_account(db)
     if account is None:
-        return {"connected": False, "email": None}
-    return {"connected": True, "email": account.email}
+        return {"connected": False, "email": None, "can_trash": False}
+    return {"connected": True, "email": account.email, "can_trash": oauth_service.can_trash(account)}
 
 
 @router.post("/disconnect")

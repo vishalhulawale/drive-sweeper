@@ -1,6 +1,7 @@
 """Thin Google Drive API v3 client: metadata listing only, with retry/backoff.
 
-Kept separate from scanning and duplicate detection (principle 3). Never modifies files.
+Kept separate from scanning and duplicate detection (principle 3). The only write it can do is
+set_trashed(), which moves a file to or from Trash. It never deletes anything permanently.
 """
 import json
 import logging
@@ -88,3 +89,12 @@ class DriveClient:
         )
         result = self._execute(request, page_token=page_token)
         return result.get("files", []), result.get("nextPageToken")
+
+    def get_file(self, file_id: str) -> dict:
+        """Fresh metadata for one file (used to re-verify before any change)."""
+        return self._execute(self._service.files().get(fileId=file_id, fields=FILE_FIELDS))
+
+    def set_trashed(self, file_id: str, trashed: bool) -> dict:
+        """Move a file to Trash (or restore it). Recoverable; never a permanent delete."""
+        request = self._service.files().update(fileId=file_id, body={"trashed": trashed}, fields=FILE_FIELDS)
+        return self._execute(request)

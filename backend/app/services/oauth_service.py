@@ -15,8 +15,10 @@ from app.core.config import settings
 from app.core.security import decrypt, encrypt
 from app.models import DriveAccount
 
-# Read-only while scanning (least privilege). The broader "drive" scope is added in Phase 3.
+# Read-only while scanning (least privilege). The broader "drive" scope is requested only when the
+# user opts in to cleanup (moving files to Trash), via /api/auth/google?upgrade=trash.
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.metadata.readonly"
+TRASH_SCOPE = "https://www.googleapis.com/auth/drive"
 
 
 class MissingDriveScope(Exception):
@@ -28,6 +30,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     DRIVE_SCOPE,
 ]
+SCOPES_WITH_TRASH = [*SCOPES, TRASH_SCOPE]
 
 if settings.google_redirect_uri.startswith("http://localhost"):
     os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")  # local development only
@@ -37,28 +40,28 @@ os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")  # Google may reorder o
 # Pending logins keyed by OAuth state -> (code_verifier, expires_at). In-memory is fine for a
 # single-process personal app; it also makes overlapping tabs/retries work (no cookie needed).
 _PENDING_TTL = 600
-_pending: dict[str, tuple[str | None, float]] = {}
+_pending: dict[str, tuple[str | None, float, bool]] = {}
 _pending_lock = threading.Lock()
 
 
-def _remember(state: str, verifier: str | None) -> None:
+def _remember(state: str, verifier: str | None, upgrade: bool) -> None:
     now = time.time()
     with _pending_lock:
-        for k in [k for k, (_, exp) in _pending.items() if exp < now]:
+        for k in [k for k, v in _pending.items() if v[1] < now]:
             del _pending[k]
-        _pending[state] = (verifier, now + _PENDING_TTL)
+        _pending[state] = (verifier, now + _PENDING_TTL, upgrade)
 
 
-def pop_pending(state: str) -> tuple[bool, str | None]:
-    """Returns (found, code_verifier). A state can be used only once."""
+def pop_pending(state: str) -> tuple[bool, str | None, bool]:
+    """Returns (found, code_verifier, upgrade). A state can be used only once."""
     with _pending_lock:
         entry = _pending.pop(state, None)
     if entry is None or entry[1] < time.time():
-        return False, None
-    return True, entry[0]
+        return False, None, False
+    return True, entry[0], entry[2]
 
 
-def _flow(state: str | None = None, code_verifier: str | None = None) -> Flow:
+def _flow(state: str | None = None, code_verifier: str | None = None, scopes: list[str] | None = None) -> Flow:
     flow = Flow.from_client_config(
         {
             "web": {
@@ -68,7 +71,7 @@ def _flow(state: str | None = None, code_verifier: str | None = None) -> Flow:
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
         },
-        scopes=SCOPES,
+        scopes=scopes or SCOPES,
         state=state,
         redirect_uri=settings.google_redirect_uri,
     )
@@ -77,26 +80,28 @@ def _flow(state: str | None = None, code_verifier: str | None = None) -> Flow:
     return flow
 
 
-def build_authorization_url() -> tuple[str, str, str | None]:
-    """Returns (url, state, code_verifier). offline access + consent guarantees a refresh token."""
-    flow = _flow()
+def build_authorization_url(upgrade: bool = False) -> tuple[str, str, str | None]:
+    """Returns (url, state, code_verifier). offline access + consent guarantees a refresh token.
+
+    upgrade=True additionally asks for the full Drive scope (needed to move files to Trash)."""
+    flow = _flow(scopes=SCOPES_WITH_TRASH if upgrade else SCOPES)
     url, state = flow.authorization_url(
         access_type="offline", prompt="consent", include_granted_scopes="true"
     )
-    _remember(state, flow.code_verifier)
+    _remember(state, flow.code_verifier, upgrade)
     return url, state, flow.code_verifier
 
 
 def complete_authorization(
-    db: Session, authorization_response: str, state: str, code_verifier: str | None
+    db: Session, authorization_response: str, state: str, code_verifier: str | None, upgrade: bool = False
 ) -> DriveAccount:
-    flow = _flow(state=state, code_verifier=code_verifier)
+    flow = _flow(state=state, code_verifier=code_verifier, scopes=SCOPES_WITH_TRASH if upgrade else SCOPES)
     flow.fetch_token(authorization_response=authorization_response)
     creds = flow.credentials
     granted = flow.oauth2session.token.get("scope") or []
     if isinstance(granted, str):
         granted = granted.split()
-    if DRIVE_SCOPE not in granted:
+    if DRIVE_SCOPE not in granted and TRASH_SCOPE not in granted:
         # Google's consent screen lets users untick individual permissions.
         raise MissingDriveScope("Google Drive permission was not granted")
     info = google_id_token.verify_oauth2_token(
@@ -114,6 +119,7 @@ def complete_authorization(
             access_token=encrypt(creds.token),
             refresh_token=encrypt(creds.refresh_token),
             token_expiry=expiry,
+            granted_scopes=" ".join(granted),
         )
         db.add(account)
     else:
@@ -122,9 +128,14 @@ def complete_authorization(
         if creds.refresh_token:
             account.refresh_token = encrypt(creds.refresh_token)
         account.token_expiry = expiry
+        account.granted_scopes = " ".join(granted)
     db.commit()
     db.refresh(account)
     return account
+
+
+def can_trash(account: DriveAccount) -> bool:
+    return TRASH_SCOPE in (account.granted_scopes or "").split()
 
 
 def get_account(db: Session) -> DriveAccount | None:
@@ -140,7 +151,7 @@ def credentials_for(account: DriveAccount) -> Credentials:
         token_uri="https://oauth2.googleapis.com/token",
         client_id=settings.google_client_id,
         client_secret=settings.google_client_secret,
-        scopes=SCOPES,
+        scopes=(account.granted_scopes or " ".join(SCOPES)).split(),
         expiry=expiry,
     )
 

@@ -88,8 +88,8 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | Phase | Goal | Status |
 |---|---|---|
 | 1 | Foundation and Google Drive integration (inventory) | Done (UI checked, backend restart issue fixed) |
-| 2 | Exact duplicate detection and review UI | In progress (detection, API and review UI built; needs your visual check) |
-| 3 | Manual cleanup (Trash, history, restore) | Not started |
+| 2 | Exact duplicate detection and review UI | Done (detection, API and review UI built) |
+| 3 | Manual cleanup (Trash, history, restore) | Built and tested with a fake Drive; needs you to grant the Trash permission and try it on a small selection |
 | 4 | Storage analytics | Not started |
 | 5 | Smart file organizer | Not started |
 | 6 | Incremental sync (Changes API) | Not started |
@@ -130,6 +130,14 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-19 - Phase 3: manual cleanup (Trash, history, restore)
+- Permission: the app still scans with the read-only scope. Moving files to Trash needs the full `drive` scope, requested only when you click **Allow cleanup** (`/api/auth/google?upgrade=trash`). New column `drive_accounts.granted_scopes` (migration `a3c1d0e4f5b6`, applied); `/api/auth/status` now reports `can_trash`.
+- `services/cleanup_service.py`: only files you marked **Trash** are touched (suggestions are never acted on). Every group must keep at least one copy, and that copy is re-checked live in Drive. Each file is re-checked right before the change (not already trashed, owned by you, MD5 unchanged, Drive allows trashing). Trash only, never permanent delete. Per-file results are recorded in `cleanup_operations` (completed, skipped, failed) with previous parents, then duplicate groups are rebuilt.
+- API: `GET /api/cleanup/plan`, `POST /api/cleanup/execute` (needs `expected_count` matching the plan, max 100 files per run, 403 without the Trash permission), `GET /api/cleanup/operations`, `POST /api/cleanup/operations/{id}/restore`.
+- Frontend: Cleanup page with a permission banner, the plan table (file to trash vs copy you keep), a confirmation dialog, and history with Restore.
+- Tests: 39 backend tests passing (9 new, using a fake Drive client). Frontend typecheck, lint and build clean. Not yet run against the real Drive.
+- Fixed a typo in `App.tsx` (`path="scans"element`) that I introduced in the Phase 2 commit; it built but was fragile.
 
 ### 2026-11-19 - Phase 2 started: exact duplicate detection and review UI
 - Phase 1 closed. The intermittent "Not found" errors were a stale uvicorn started before the files API existed (no `--reload`); restarting with `--reload` fixed it. Note: on Windows, `--reload` can hang after a scan thread ran; if new routes 404, kill uvicorn and start it again.

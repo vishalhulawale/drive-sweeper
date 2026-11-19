@@ -14,6 +14,7 @@ class DriveAccount(Base):
     email: Mapped[str] = mapped_column(String(320))
     access_token: Mapped[str] = mapped_column(Text)  # Fernet-encrypted
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)  # Fernet-encrypted
+    granted_scopes: Mapped[str | None] = mapped_column(Text, nullable=True)  # space separated
     token_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

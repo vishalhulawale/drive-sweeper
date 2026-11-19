@@ -6,6 +6,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuthStatus } from './hooks/useGoogleDrive'
 import MainLayout from './layouts/MainLayout'
 import ConnectPage from './pages/ConnectPage'
+import Cleanup from './pages/Cleanup'
 import Dashboard from './pages/Dashboard'
 import Duplicates from './pages/Duplicates'
 import FileExplorer from './pages/FileExplorer'
@@ -40,7 +41,8 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="files" element={<FileExplorer />} />
         <Route path="duplicates" element={<Duplicates />} />
-        <Route path="scans"element={<ScanHistory />} />
+        <Route path="cleanup" element={<Cleanup />} />
+        <Route path="scans" element={<ScanHistory />} />
         <Route path="settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

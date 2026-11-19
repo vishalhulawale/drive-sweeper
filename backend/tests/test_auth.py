@@ -20,7 +20,7 @@ def test_token_encryption_roundtrip():
 
 def test_status_not_connected_shape():
     body = client.get("/api/auth/status").json()
-    assert set(body) == {"connected", "email"}
+    assert set(body) == {"connected", "email", "can_trash"}
 
 
 def test_login_redirects_to_google_with_offline_and_readonly_scope():
