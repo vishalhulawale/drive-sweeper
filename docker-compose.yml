@@ -1,3 +1,6 @@
+# Local development: `docker compose up -d db` starts only PostgreSQL (run backend and frontend natively).
+# Whole app in containers: `docker compose up -d --build` (needs backend/.env, see README).
+# The ports match the native setup, so the Google OAuth origin and redirect URI stay the same.
 services:
   db:
     image: postgres:16
@@ -9,6 +12,35 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U driveclean -d driveclean"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file: ./backend/.env        # Google client, token key; never baked into the image
+    environment:
+      DATABASE_URL: postgresql+psycopg://driveclean:driveclean@db:5432/driveclean
+      FRONTEND_ORIGIN: http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
 
 volumes:
   pgdata:

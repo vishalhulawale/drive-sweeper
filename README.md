@@ -44,7 +44,7 @@ backend/
   requirements.txt
   .env.example
 frontend/            (Vite + React + TypeScript + MUI; pages, hooks, services, types)
-docker-compose.yml   (PostgreSQL 16)
+docker-compose.yml   (PostgreSQL 16, backend and frontend images)
 ```
 
 ## Local Development
@@ -70,6 +70,15 @@ npm run dev                    # http://localhost:5173
 ```
 
 Health check: `GET http://localhost:8000/api/health`.
+
+### Run everything in Docker
+
+```powershell
+copy backend\.env.example backend\.env   # fill in Google client, secret and TOKEN_ENCRYPTION_KEY
+docker compose up -d --build              # db + backend (port 8000) + frontend (port 5173)
+```
+
+The backend container applies migrations on start and connects to the `db` service; `backend/.env` is read at run time and never copied into an image. The ports are the same as the native setup, so the Google OAuth origin and redirect URI do not change. Stop any natively running backend or frontend first, because they use the same ports. `docker compose up -d db` still starts only the database for native development.
 
 ## Google Cloud Setup (Milestone 1.2, manual)
 
@@ -130,6 +139,10 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-19 - Docker Compose runs the whole app (product decision, was database only)
+- The plan says "Deployment: Docker Compose", but the compose file only had PostgreSQL. Added `backend/Dockerfile` (Python 3.12 slim; runs `alembic upgrade head`, then uvicorn), `frontend/Dockerfile` (Node build, then nginx with a single-page-app fallback and long caching for hashed assets), `.dockerignore` files (so `.env` never goes into an image), and `backend` + `frontend` services with a database health check. See **Run everything in Docker** above.
+- Validated: both images build. Started on spare ports beside your running dev servers, the backend container applied migrations, reached the database by service name and served your real data (`/api/health` ok, 263 duplicate groups), and the frontend served the app, including deep links such as `/cleanup`. The test containers were stopped afterwards.
 
 ### 2026-11-19 - UI redesign plan
 - Reviewed the current UI (code and screenshots) and wrote [docs/redesign-plan.md](docs/redesign-plan.md): move from MUI to Cloudscape (the AWS console design system), Geist font, light theme by default with dark mode and density options in Settings, a new favicon, an AWS-console-style shell (top bar, grouped side menu, breadcrumbs, notifications, help panel), and a page-by-page redesign.
