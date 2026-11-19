@@ -57,6 +57,10 @@ class NotFound(DriveError):
     """The file no longer exists in Drive (deleted permanently, or Trash was emptied)."""
 
 
+class Interrupted(Exception):
+    """A transfer was stopped between chunks because its `stop` event was set (cancel or server shutdown)."""
+
+
 class InvalidPageToken(DriveError):
     """The saved nextPageToken expired or is no longer valid; the listing must restart."""
 
@@ -231,15 +235,18 @@ class DriveClient:
             raise DriveError(f"{what} failed with HTTP {resp.status}")
         raise DriveError(f"{what} failed")
 
-    # ---- archive extraction: the only place file contents are downloaded or files are created ----
+    # ---- archive extraction: whole-file downloads, folder creation and uploads ----
 
-    def download_to(self, file_id: str, path: str) -> None:
-        """Stream a file's contents to a local path, in chunks, each retried on its own."""
+    def download_to(self, file_id: str, path: str, stop: threading.Event | None = None) -> None:
+        """Stream a file's contents to a local path, in chunks, each retried on its own. Setting `stop`
+        ends it between chunks with Interrupted."""
         request = self._service.files().get_media(fileId=file_id)
         with open(path, "wb") as fh:
             downloader = MediaIoBaseDownload(fh, request, chunksize=TRANSFER_CHUNK)
             done = False
             while not done:
+                if stop is not None and stop.is_set():
+                    raise Interrupted()
                 _, done = self._retry(downloader.next_chunk)
 
     def create_folder(self, name: str, parent_id: str) -> str:
@@ -266,9 +273,10 @@ class DriveClient:
             if not token:
                 return out
 
-    def upload_file(self, path: str, name: str, parent_id: str, mime_type: str) -> dict:
+    def upload_file(self, path: str, name: str, parent_id: str, mime_type: str, stop: threading.Event | None = None) -> dict:
         """Create a new file from a local path. Large files use a resumable upload, and each chunk is
-        retried on its own. Returns id, md5Checksum and size as Drive stored them."""
+        retried on its own; setting `stop` ends it between chunks with Interrupted (Drive discards an
+        unfinished upload). Returns id, md5Checksum and size as Drive stored them."""
         size = os.path.getsize(path)
         body = {"name": name, "parents": [parent_id]}
         if size <= SIMPLE_UPLOAD_MAX:
@@ -278,6 +286,8 @@ class DriveClient:
         request = self._service.files().create(body=body, media_body=media, fields=UPLOAD_FIELDS)
         response = None
         while response is None:
+            if stop is not None and stop.is_set():
+                raise Interrupted()
             _, response = self._retry(request.next_chunk)
         return response
 

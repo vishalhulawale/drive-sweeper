@@ -12,6 +12,7 @@ DriveClean scans your Drive's metadata into a local PostgreSQL database, finds e
 - **Storage analytics**: usage by file type and year, the largest files, and a folder treemap.
 - **Trash overview**: how much space Trash uses and when Drive will delete each item.
 - **File organizer**: sorts loose files into topic folders by what they contain (hospital records into Medical, mark sheets into Education), using Claude to read a short excerpt of each file. Existing folders are reused and missing ones are created when you move. Without an Anthropic API key, it suggests existing folders from file types, dates and naming patterns instead. Moves can be undone.
+- **Archives**: extracts zip, rar and tar files into a new folder with the archive's name, next to the archive, several archives at a time. Every uploaded file is checked against the extracted one, and only then does the archive move to Trash (restorable). An interrupted or cancelled extraction continues where it stopped.
 - **Incremental sync**: after the first full scan, the Drive Changes API keeps the inventory current in seconds. It runs on a schedule and when you open the review pages.
 
 ## How it works
@@ -22,7 +23,7 @@ React frontend ──REST──> FastAPI backend ──> Google Drive API v3
                               └──> PostgreSQL (metadata, scan state, duplicate groups, history)
 ```
 
-Google Drive stays the source of truth. The database stores metadata only, never file contents. The one feature that reads contents is the organizer's content analysis, which you start yourself: it sends each file's name and a short excerpt (a few thousand characters of text, the first pages of a scanned PDF, or a small image preview) to the Claude API and keeps only the chosen folder and a one-line summary. Scans are resumable, and long jobs (scans, photo analysis, cleanup runs) run in background threads with progress and cancel.
+Google Drive stays the source of truth. The database stores metadata only, never file contents. Two features read file contents, and only when you start them. Archive extraction downloads each chosen archive to the server, unpacks it one file at a time into a temporary folder that is removed afterwards, and uploads the files. The organizer's content analysis sends each file's name and a short excerpt (a few thousand characters of text, the first pages of a scanned PDF, or a small image preview) to the Claude API and keeps only the chosen folder and a one-line summary. Scans are resumable, and long jobs (scans, photo analysis, cleanup runs) run in background threads with progress and cancel.
 
 **Safety rules**, enforced in the backend:
 
@@ -143,6 +144,7 @@ docker-compose.yml
 - Built for a single user's own Drive. Shared drives are not scanned, and files shared with you are listed but never changed.
 - Similar-photo detection depends on Drive's preview images. Colour variants that look identical in a preview cannot be told apart.
 - Automatic sync runs only while the backend is running.
+- Archive extraction needs free disk space on the server for the archive plus a few of its files, and free Drive storage for everything extracted. RAR needs `unrar`, `unar`, `bsdtar` or 7-Zip on the server (the Docker image includes `bsdtar`). Password-protected archives are not supported.
 
 ## License
 

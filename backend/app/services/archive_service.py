@@ -31,7 +31,7 @@ from app.core.config import settings
 from app.models import ArchiveExtraction, CleanupOperation, DriveFile
 from app.services import duplicate_detector
 from app.services.archive_reader import NAME_PATTERN, Archive, ArchiveError, folder_name_for, kind_of
-from app.services.google_drive import FOLDER_MIME, DriveError, NotFound
+from app.services.google_drive import FOLDER_MIME, DriveError, Interrupted, NotFound
 
 log = logging.getLogger(__name__)
 
@@ -227,8 +227,8 @@ def _run_guarded(session_factory, client, extraction_id, cancelled, disk, drive)
         db.commit()
         try:
             extract_one(db, client, ex, cancelled, disk, drive)
-        except Cancelled:
-            _end(db, ex, "cancelled", "Stopped. Extract it again to continue where it stopped.")
+        except (Cancelled, Interrupted):
+            _end(db, ex, "cancelled", "Stopped (cancelled, or the server restarted). Extract it again to continue where it stopped.")
         except (DriveError, ArchiveError) as err:
             log.warning("Extraction of %s failed: %s", ex.archive_name, err)
             _end(db, ex, "failed", str(err))
@@ -269,7 +269,7 @@ def extract_one(db: Session, client, ex: ArchiveExtraction, cancelled: threading
         held_disk = size
         _stage(db, ex, "downloading")
         local = os.path.join(workdir, "archive")
-        client.download_to(ex.google_file_id, local)
+        client.download_to(ex.google_file_id, local, stop=cancelled)
         if live.get("md5Checksum") and _md5_file(local) != live["md5Checksum"]:
             raise DriveError("The download did not match the archive in Drive; try again")
         if cancelled.is_set():
@@ -377,6 +377,8 @@ def _upload_all(db, client, ex, entries, root_id, resumed, workdir, cancelled) -
                     ex.bytes_done += size
             except DriveError as err:
                 failures.append(f"{path}: {err}")
+            except Interrupted:
+                pass  # stopping: not a failure; the loop raises Cancelled, and a later attempt uploads it
             finally:
                 os.remove(tmp)
         if done:
@@ -415,11 +417,13 @@ def _upload_all(db, client, ex, entries, root_id, resumed, workdir, cancelled) -
                 ex.bytes_done += entry.size
                 continue
             mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-            running[pool.submit(client.upload_file, tmp, name, parent, mime)] = (path, entry.size, md5, tmp)
+            running[pool.submit(client.upload_file, tmp, name, parent, mime, stop=cancelled)] = (path, entry.size, md5, tmp)
             collect(block=False)
         while running:
             collect(block=True)
     db.commit()
+    if cancelled.is_set():
+        raise Cancelled()
     return failures
 
 

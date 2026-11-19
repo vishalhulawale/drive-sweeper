@@ -51,7 +51,7 @@ class FakeDrive:
                 raise NotFound("404")
             return dict(self.files[fid])
 
-    def download_to(self, fid, path):
+    def download_to(self, fid, path, stop=None):
         with self.lock:
             self.downloads += 1
             self.active += 1
@@ -81,7 +81,10 @@ class FakeDrive:
         with self.lock:
             return [dict(f) for f in self._children(folder_id)]
 
-    def upload_file(self, path, name, parent, mime):
+    def upload_file(self, path, name, parent, mime, stop=None):
+        if stop is not None and stop.is_set():
+            from app.services.google_drive import Interrupted
+            raise Interrupted()
         time.sleep(self.upload_delay)
         if name in self.fail_upload:
             raise DriveError("Drive API error 500: backendError")
@@ -295,6 +298,33 @@ def test_cancel_skips_queued_archives(env):
     db.expire_all()
     assert [db.get(ArchiveExtraction, i).status for i in ids] == ["cancelled", "cancelled"]
     assert drive.downloads == 0
+
+
+def test_stop_mid_run_keeps_archive_and_next_attempt_resumes(env):
+    """A cancel or a server shutdown sets the event: the archive is recorded as stopped, never trashed,
+    and extracting it again finishes the job without uploading anything twice."""
+    db, acc, drive, archive = env
+    f = archive("Z", "many.zip", make_zip({f"f{i:02}.txt": bytes([i]) for i in range(30)}))
+    stop = threading.Event()
+    real_upload = drive.upload_file
+
+    def upload_then_stop(*a, **kw):
+        result = real_upload(*a, **kw)
+        stop.set()  # the user presses Cancel (or the server shuts down) after the first upload
+        return result
+
+    drive.upload_file = upload_then_stop
+    [first] = run(db, acc, drive, [f], cancelled=stop)
+    assert first.status == "cancelled" and "Extract it again" in first.error_message
+    assert 0 < first.files_done < 30 and not drive.files["Z"]["trashed"]
+
+    drive.upload_file = real_upload
+    [second] = run(db, acc, drive, [f])
+    assert second.status == "completed", second.error_message
+    assert second.folder_google_id == first.folder_google_id
+    assert second.files_skipped == first.files_done
+    assert len(drive.tree(second.folder_google_id)) == 30          # every file exactly once
+    assert drive.files["Z"]["trashed"]
 
 
 def test_only_one_run_at_a_time_and_only_your_archives(env):

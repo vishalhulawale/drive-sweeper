@@ -40,6 +40,15 @@ def start(account_id: int, client, extraction_ids: list[int]) -> None:
                      name=f"archives-{account_id}", daemon=True).start()
 
 
+def stop_all() -> None:
+    """Server shutdown (including a dev auto-reload): stop every run after the current chunk, so the
+    process can exit. The archives are recorded as stopped and resume when extracted again."""
+    with _lock:
+        events = list(_active.values())
+    for event in events:
+        event.set()
+
+
 def cancel(account_id: int) -> None:
     with _lock:
         event = _active.get(account_id)

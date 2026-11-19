@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.repositories import scan_repository
 from app.services import archive_service, cleanup_service
-from app.workers import auto_sync
+from app.workers import archive_worker, auto_sync
 
 logging.basicConfig(level=logging.INFO)
 
@@ -31,6 +31,7 @@ async def lifespan(_app: FastAPI):
         auto_sync.reset_stuck(db)
     auto_sync.start()
     yield
+    archive_worker.stop_all()  # first: lets a running extraction end so the process can exit
     auto_sync.stop()
 
 
