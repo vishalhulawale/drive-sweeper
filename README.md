@@ -131,6 +131,9 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Faster similar-photos scan
+- Thumbnail hashing now uses 32 parallel fetch threads (was 8), lists the next page of images while the current page is being hashed, and writes hashes with one bulk update per page instead of a lookup per file. Stopping now takes effect within the current page instead of after it.
+
 ### 2026-11-19 - Phase 7b: near-duplicate (similar) photos
 - Finds photos that look alike but are not byte-identical (resized, re-saved, lightly edited). `services/perceptual.py`: dHash fingerprint (64 bits from a 9x8 greyscale shrink) and clustering at Hamming distance 4 or less. Candidate pairs come from splitting the hash into 5 chunks (a pigeonhole guarantee that no pair within 4 bits is missed), flat/blank images are ignored, and oversized buckets are skipped so a bad hash cannot cause a runaway comparison.
 - `services/near_duplicate_service.py` + `workers/near_worker.py`: a background job lists your images (metadata), fetches a **64 px thumbnail** of each (a few KB; the original files are never downloaded), hashes it with Pillow (new dependency) and stores the hash on the file row (migration `d5f9a3b7c1e2`). Resumable and committed page by page; a file is only re-hashed if its md5 changed; images under 30 KB are skipped; thumbnails that fail temporarily are retried next run, ones that cannot exist or decode are counted as unreadable. Eight parallel fetches.
