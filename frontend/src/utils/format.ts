@@ -29,3 +29,6 @@ export function friendlyType(mime: string): string {
   if (mime.startsWith('application/vnd.google-apps.')) return 'Google ' + mime.split('.').pop()
   return mime.split('/').pop() ?? mime
 }
+
+/** "15 minutes", "1 hour", "12 hours". */
+export const intervalLabel = (m: number) => (m < 60 ? `${m} minutes` : `${m / 60} hour${m === 60 ? '' : 's'}`)

@@ -140,6 +140,15 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - UI redesign phase 1: dashboard, sign-in, settings
+- **Dashboard** rebuilt on Cloudscape. It leads with **Space you can free**: a large "Up to 1.9 GB of 103 GB" figure and a thin segmented bar (similar photos, duplicates, in Trash) whose parts and legend entries are linked and highlight each other on hover/focus; the bar fills once on first load (off for reduced motion). Colours are Cloudscape's chart palette, checked with the dataviz palette validator (colour-blind separation passes; values are also printed in the legend). Below: **Next steps** (1 scan, 2 review, 3 move to Trash, 4 Drive deletes) with live status and links, **Drive scan** and **Quick sync** containers, **Inventory**, and a **Storage by type** donut (top 6 types plus Other; hover for size, share and file count).
+- Every value has a placeholder of the same size until its query returns, so the dashboard no longer shows "Start first scan" / "Never" while loading.
+- **Sign-in page**: centred card with the logo, three plain promises (reads details only, never downloads, nothing moves without approval) and the Connect button; sign-in errors in an alert.
+- **Settings**: Google Drive connection (account, granted permissions, "Allow moving to Trash", Disconnect with a confirmation dialog), **Display** (theme Light / Dark / Match system, density Comfortable / Compact) and **Quick sync** settings (moved here from the dashboard).
+- Progress for long jobs (full scan, photo analysis, cleanup run) now shows in the notification bar on every page, with a result notice when it finishes. Cleanup progress has "Cancel remaining".
+- A page that crashes now shows an error with "Reload page" inside the layout instead of blanking the app.
+- Shared pieces: `InfoLink`, `EmptyState`, `AppLink` / `AppButtonLink` (in-app navigation), scan and operation status indicators.
+
 ### 2026-11-19 - UI redesign phase 0: foundation
 Following [docs/redesign-plan.md](docs/redesign-plan.md).
 - Added Cloudscape (`components`, `global-styles`, `collection-hooks`, `design-tokens`) and self-hosted Geist / Geist Mono fonts. MUI stays until each page is moved over.

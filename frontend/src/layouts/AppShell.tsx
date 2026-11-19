@@ -16,7 +16,9 @@ import { APP_NAME, DRIVE_URL, NAV_FOOTER, NAV_GROUPS, PAGES, pageFor, type PageK
 import { NotificationsBar, NotificationsProvider } from './NotificationsProvider'
 import { useNotificationsState } from './useNotificationsState'
 import { useBackendStatus } from './useBackendStatus'
+import { useJobNotifications } from './useJobNotifications'
 import PageSkeleton from '../components/loading/PageSkeleton'
+import PageErrorBoundary from '../components/common/PageErrorBoundary'
 
 const THEMES: { id: ThemePref; text: string }[] = [
   { id: 'light', text: 'Light' },
@@ -41,6 +43,7 @@ export default function AppShell() {
   const counts = useNavCounts()
   const notifications = useNotificationsState()
   useBackendStatus(notifications.api)
+  useJobNotifications(notifications.api)
   const [navOpen, setNavOpen] = useState(true)
   const [toolsOpen, setToolsOpen] = useState(false)
 
@@ -138,7 +141,11 @@ export default function AppShell() {
             tools: 'Help panel', toolsToggle: 'Open help panel', toolsClose: 'Close help panel',
             notifications: 'Notifications',
           }}
-          content={<Suspense fallback={<PageSkeleton />}><Outlet /></Suspense>}
+          content={
+            <PageErrorBoundary key={pathname}>
+              <Suspense fallback={<PageSkeleton />}><Outlet /></Suspense>
+            </PageErrorBoundary>
+          }
         />
       </HelpContext.Provider>
     </NotificationsProvider>
