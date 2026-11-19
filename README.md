@@ -140,6 +140,13 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - UI redesign phase 3: cleanup and trash
+- **Cleanup** rebuilt on Cloudscape. The header's main action names the count ("Move 214 files to Trash"). **Ready to move to Trash** now lists every marked file (it used to stop at 100) with search, sorting and pagination, and an empty state linking to Duplicates and Similar photos. Groups that can't be cleaned up as marked are summarised in one warning with the reasons in an expandable section.
+- The confirmation dialog shows files, size and groups. Progress runs in the notification bar on every page (from phase 1), so the page's own progress banner is gone; a result notice links back to the history.
+- **History**: search, pagination, actions in words ("Moved to Trash", "Restored"), status indicators, files later deleted in Drive marked as such, a Restore link per row, and **Restore selected** for several files at once (errors reported per file).
+- **Trash**: overview (space used, deleted within 7 days, next automatic deletion), a **deletion timeline** bar chart of the space Drive frees on each of the next 30 days (from the 200 items deleted soonest; hover a day for size and file names), a one-line explanation with "Open Drive Trash", "Fetch dates" when dates are missing (result as a notification), and a sortable, paginated table with "Deleted by Drive" and a warning colour within 7 days. The timeline is hidden while the Trash is empty.
+- Not exercised in the browser: moving files to Trash and restoring, since that changes your Drive. Your Trash and history are empty, so those tables were checked in their empty states.
+
 ### 2026-11-19 - UI redesign phase 2: duplicates and similar photos
 - **Duplicates** is one Cloudscape table with expandable rows: each group row (name, copies, size each, space you can free, review state such as "1 marked, 1 to decide") expands to its copies (name linking to Drive, size, created, modified, decision). Sorting by savings, copies or size uses the column headers; the Decision column stays pinned on narrow screens. Groups can be selected, and **Apply suggestions** works on selected groups, this page, or all groups (all groups asks for confirmation first). The next page is prefetched.
 - **Keep / Trash** is one shared control (`DecisionControl`) on both pages. It now separates a *choice* from a *suggestion*: only a chosen Trash counts for Cleanup, so unchosen files show "Suggested: trash" as text instead of looking already marked. Choices update the screen at once and roll back with an error notice if saving fails.

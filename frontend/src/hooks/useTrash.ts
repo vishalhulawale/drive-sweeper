@@ -20,3 +20,7 @@ export function useRefreshTrashDates() {
     },
   })
 }
+
+/** The 200 items Drive deletes soonest, for the deletion timeline. */
+export const useTrashTimeline = () =>
+  useQuery({ queryKey: ['trash-items', 'timeline'], queryFn: () => trashService.items('deletes', 1, 200) })
