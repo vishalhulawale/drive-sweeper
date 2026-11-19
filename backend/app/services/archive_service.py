@@ -380,7 +380,7 @@ def _upload_all(db, client, ex, entries, root_id, resumed, workdir, cancelled) -
             except Interrupted:
                 pass  # stopping: not a failure; the loop raises Cancelled, and a later attempt uploads it
             finally:
-                os.remove(tmp)
+                _discard(tmp)
         if done:
             db.commit()
 
@@ -411,7 +411,7 @@ def _upload_all(db, client, ex, entries, root_id, resumed, workdir, cancelled) -
             name = entry.parts[-1]
             prior = children(parent).get(name)
             if prior and prior.get("md5Checksum") == md5:
-                os.remove(tmp)
+                _discard(tmp)
                 ex.files_skipped += 1
                 ex.files_done += 1
                 ex.bytes_done += entry.size
@@ -425,6 +425,15 @@ def _upload_all(db, client, ex, entries, root_id, resumed, workdir, cancelled) -
     if cancelled.is_set():
         raise Cancelled()
     return failures
+
+
+def _discard(path: str) -> None:
+    """Remove a temp file; if it cannot be removed yet (still open on Windows), the work folder is
+    removed at the end of the archive anyway, so this is never a reason to fail."""
+    try:
+        os.remove(path)
+    except OSError as err:
+        log.info("Temp file %s left for the final cleanup: %s", path, err)
 
 
 def _copy_out(entry, dest: str) -> str:

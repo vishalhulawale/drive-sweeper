@@ -368,3 +368,57 @@ def test_api_lists_archives_and_needs_trash_permission(env, monkeypatch):
     acc_row.granted_scopes = oauth_service.DRIVE_SCOPE
     db.commit()
     assert c.post("/api/archives/extract", json={"file_ids": [item["file_id"]]}).status_code == 403
+
+
+def test_drive_connections_do_not_treat_resumable_308_as_a_redirect():
+    from app.services.google_drive import _http
+    assert 308 not in _http(5).redirect_codes  # else every resumable upload fails with RedirectMissingLocation
+
+
+@pytest.mark.parametrize("size", [10, 6 * 1024 * 1024])  # simple and resumable upload
+def test_upload_closes_its_file_so_the_temp_file_can_be_removed(tmp_path, size):
+    from app.services.google_drive import DriveClient
+
+    seen = {}
+
+    class Request:
+        def __init__(self, media):
+            self.media = media
+
+        def execute(self):
+            return {"id": "new", "md5Checksum": "m"}
+
+        def next_chunk(self):
+            return None, {"id": "new", "md5Checksum": "m"}
+
+    class Files:
+        def create(self, body, media_body, fields):
+            seen["media"] = media_body
+            return Request(media_body)
+
+    class Service:
+        def files(self):
+            return Files()
+
+    p = tmp_path / "f.bin"
+    p.write_bytes(b"x" * size)
+    out = DriveClient(credentials=None, service=Service()).upload_file(str(p), "f.bin", "P", "application/octet-stream")
+    assert out["id"] == "new"
+    assert seen["media"].resumable() is (size > 5 * 1024 * 1024)
+    p.unlink()  # would raise PermissionError on Windows if the upload kept the file open
+
+
+def test_a_temp_file_that_cannot_be_removed_does_not_fail_the_archive(env, monkeypatch):
+    db, acc, drive, archive = env
+    f = archive("Z", "locked.zip", make_zip({"a.txt": b"a", "b.txt": b"b"}))
+    real_remove = svc.os.remove
+
+    def locked(path):
+        if path.endswith("f0"):
+            raise PermissionError(32, "The process cannot access the file because it is being used by another process")
+        real_remove(path)
+
+    monkeypatch.setattr(svc.os, "remove", locked)
+    [ex] = run(db, acc, drive, [f])
+    assert ex.status == "completed", ex.error_message
+    assert drive.files["Z"]["trashed"]

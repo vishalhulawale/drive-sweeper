@@ -22,7 +22,7 @@ import httplib2
 from google.auth.exceptions import TransportError
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +35,15 @@ FOLDER_MIME = "application/vnd.google-apps.folder"
 UPLOAD_FIELDS = "id,md5Checksum,size"
 TRANSFER_CHUNK = 32 * 1024 * 1024      # download/upload chunk; a failed chunk is retried, not the whole file
 SIMPLE_UPLOAD_MAX = 5 * 1024 * 1024    # larger files use a resumable upload
+
+
+def _http(timeout: int) -> httplib2.Http:
+    """An httplib2 connection that does not follow 308. Drive answers each chunk of a resumable upload
+    with 308 "Resume Incomplete", which httplib2 would otherwise treat as a redirect and fail with
+    RedirectMissingLocation (googleapiclient's own build_http does the same)."""
+    http = httplib2.Http(timeout=timeout)
+    http.redirect_codes = http.redirect_codes - {308}
+    return http
 
 
 def _q(value: str) -> str:
@@ -97,7 +106,7 @@ class DriveClient:
     def _thread_service(self):
         svc = getattr(self._local, "service", None)
         if svc is None:
-            http = google_auth_httplib2.AuthorizedHttp(self._credentials, http=httplib2.Http(timeout=60))
+            http = google_auth_httplib2.AuthorizedHttp(self._credentials, http=_http(60))
             svc = self._local.service = build("drive", "v3", http=http, cache_discovery=False)
         return svc
 
@@ -202,7 +211,7 @@ class DriveClient:
         """This thread's own authorized connection (httplib2 connections must not be shared)."""
         http = getattr(self._local, "http", None)
         if http is None:
-            http = google_auth_httplib2.AuthorizedHttp(self._credentials, http=httplib2.Http(timeout=30))
+            http = google_auth_httplib2.AuthorizedHttp(self._credentials, http=_http(30))
             self._local.http = http
         return http
 
@@ -279,17 +288,20 @@ class DriveClient:
         unfinished upload). Returns id, md5Checksum and size as Drive stored them."""
         size = os.path.getsize(path)
         body = {"name": name, "parents": [parent_id]}
-        if size <= SIMPLE_UPLOAD_MAX:
-            media = MediaFileUpload(path, mimetype=mime_type, resumable=False)
-            return self._execute(self._service.files().create(body=body, media_body=media, fields=UPLOAD_FIELDS))
-        media = MediaFileUpload(path, mimetype=mime_type, resumable=True, chunksize=TRANSFER_CHUNK)
-        request = self._service.files().create(body=body, media_body=media, fields=UPLOAD_FIELDS)
-        response = None
-        while response is None:
-            if stop is not None and stop.is_set():
-                raise Interrupted()
-            _, response = self._retry(request.next_chunk)
-        return response
+        # Our own file handle, closed on every exit, so the temp file can be removed afterwards (Windows
+        # cannot delete a file that is still open, and MediaFileUpload keeps its handle open).
+        with open(path, "rb") as fh:
+            if size <= SIMPLE_UPLOAD_MAX:
+                media = MediaIoBaseUpload(fh, mimetype=mime_type, resumable=False)
+                return self._execute(self._service.files().create(body=body, media_body=media, fields=UPLOAD_FIELDS))
+            media = MediaIoBaseUpload(fh, mimetype=mime_type, resumable=True, chunksize=TRANSFER_CHUNK)
+            request = self._service.files().create(body=body, media_body=media, fields=UPLOAD_FIELDS)
+            response = None
+            while response is None:
+                if stop is not None and stop.is_set():
+                    raise Interrupted()
+                _, response = self._retry(request.next_chunk)
+            return response
 
     def storage_quota(self) -> tuple[int | None, int]:
         """(limit, usage) in bytes; limit is None for unlimited storage. Trash counts towards usage."""
