@@ -102,7 +102,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 4 | Storage analytics | Done (overview, by type, by year, largest folders and files) |
 | 5 | Smart file organizer | Built and tested with a fake Drive; needs you to try a few moves on the real Drive |
 | 6 | Incremental sync (Changes API) | Done and verified on the real Drive |
-| 7 | Advanced features | Done (automatic sync, similar photos, Trash overview). Similar-photos analysis has run on the full Drive; review the large groups by eye (see the open finding below) |
+| 7 | Advanced features | Done (automatic sync, similar photos with the stronger fingerprint, Trash overview); full Drive analysed |
 
 ### Phase 1 milestones
 
@@ -139,6 +139,14 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-19 - Similar photos: stronger fingerprint (fixes the open finding)
+- The 64-bit greyscale fingerprint grouped images that only shared a layout: 54 different pages of one scanned form, 44 garment swatches that differ only in colour, and moving burst frames.
+- New fingerprint (`perceptual.py`, version 2), made from a 256 px preview instead of 64 px and about 1.2 KB per photo: a 256-bit difference hash to find candidates fast, then two checks against the suggested keeper. The **structure** check needs a 32x32 greyscale correlation of 0.99 or more. The **colour** check compares 8x8 cells (90th-percentile cell difference of 6 or less) and the colour bias, the mean signed shift per channel (3 or less), which catches a small but uniform change of shade while ignoring the edge blur from resizing. Flat images never match. Migration `a8c3e6f0b4d2` (wider hash column, `phash_detail`, `phash_version`); photos with an older version are fingerprinted again automatically.
+- Thresholds were calibrated on 2,431 of your photos (previews compared by eye in contact sheets). Genuine copies (HEIC vs JPEG, re-saved or resized copies, the same page saved twice) pass. Other pages of a form, swatches in different shades, recoloured icons, heavily colour-graded or black-and-white edits, and burst frames with movement do not.
+- Full re-analysis of your Drive: 12,347 photos in 9 min 19 s, 38 unreadable. Result: **265 groups, 917 photos, up to 1.8 GB** (was 830 groups, 2,431 photos, 7.2 GB). Document-page groups are now all pairs of the same page, and the largest groups are 10-shot iPhone bursts of a static pose.
+- Known limits: colour variants that look identical in Drive's preview (two Pantone reds about 2 RGB units apart) cannot be told apart, so check the file names. Near-static consecutive shots are still offered as similar, and you choose which to keep.
+- Tests: 114 backend tests passing (7 new or rewritten: re-saved copies match; colour-only, slight-shade, other-page-of-a-form and flat images do not; the detail check applies to every group member). Frontend typecheck and lint clean.
 
 ### 2026-11-19 - Faster duplicate regrouping (runs after every sync with changes)
 - Regrouping ran after every scan, sync with changes, cleanup and restore, and took about 4.7 s: the exact rebuild ran one query and one flush per group, and the similar-photo regroup loaded 12,000 full rows, then flushed 830 groups and inserted 2,431 members one row at a time.

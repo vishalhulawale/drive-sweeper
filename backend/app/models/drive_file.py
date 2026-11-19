@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, LargeBinary, SmallInteger, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,9 +35,12 @@ class DriveFile(Base):
     is_owned_by_user: Mapped[bool] = mapped_column(Boolean, default=True)
     is_shortcut: Mapped[bool] = mapped_column(Boolean, default=False)
     shortcut_target_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    # Perceptual (dHash) hex from the Drive thumbnail. phash_md5 records which file contents it was
-    # computed from, so an edited file (new md5) is re-hashed instead of trusted.
-    perceptual_hash: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Perceptual fingerprint from the Drive preview (see services/perceptual.py): the hash as hex plus
+    # the detail bytes (32x32 grey + 8x8 colour). phash_md5 records which file contents it was computed
+    # from, so an edited file (new md5) is redone; phash_version does the same when the method changes.
+    perceptual_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    phash_detail: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    phash_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     phash_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     phash_md5: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

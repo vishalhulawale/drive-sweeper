@@ -22,7 +22,6 @@ log = logging.getLogger(__name__)
 
 MIN_SIZE = 30 * 1024        # tiny images (icons, emoji) match each other far too easily
 FETCH_WORKERS = 16          # I/O-bound (thumbnail downloads); each thread keeps its own HTTP connection
-THUMB_PX = 64
 NEAR = "near"
 
 
@@ -39,8 +38,9 @@ def _eligible(account_id: int):
 
 
 def _needs_hash():
-    """No attempt yet for the file's current contents."""
-    return or_(DriveFile.phash_md5.is_(None), DriveFile.phash_md5 != DriveFile.md5_checksum)
+    """No attempt yet for the file's current contents with the current fingerprint method."""
+    return or_(DriveFile.phash_md5.is_(None), DriveFile.phash_md5 != DriveFile.md5_checksum,
+               DriveFile.phash_version.is_distinct_from(perceptual.VERSION))
 
 
 def status(db: Session, account_id: int) -> dict:
@@ -61,12 +61,12 @@ def status(db: Session, account_id: int) -> dict:
     }
 
 
-def _hash_one(client, link: str | None) -> tuple[str | None, bool]:
-    """Returns (hash_hex or None, final). final=False means a transient failure: try again next run."""
+def _hash_one(client, link: str | None) -> tuple[perceptual.Fingerprint | None, bool]:
+    """Returns (fingerprint or None, final). final=False means a transient failure: try again next run."""
     if not link:
         return None, True
     try:
-        return perceptual.to_hex(perceptual.dhash_bytes(client.fetch_thumbnail(link, THUMB_PX))), True
+        return perceptual.fingerprint(client.fetch_thumbnail(link, perceptual.THUMB_PX)), True
     except perceptual.BadImage:
         return None, True
     except (DriveError, OSError, httplib2.HttpLib2Error) as err:  # OSError covers timeouts/resets
@@ -106,8 +106,12 @@ def run_hashing(session_factory, client, account_id: int, cancel: threading.Even
                         if res is None or not res[1]:
                             skipped += 1
                             continue
-                        updates.append({"id": r.id, "perceptual_hash": res[0], "phash_attempted_at": now,
-                                        "phash_md5": r.md5_checksum})
+                        fp = res[0]
+                        updates.append({
+                            "id": r.id, "perceptual_hash": perceptual.to_hex(fp.hash) if fp else None,
+                            "phash_detail": fp.detail if fp else None, "phash_version": perceptual.VERSION,
+                            "phash_attempted_at": now, "phash_md5": r.md5_checksum,
+                        })
                     if updates:
                         db.bulk_update_mappings(DriveFile, updates)
                         done += len(updates)
@@ -147,13 +151,24 @@ def detect(db: Session, account_id: int, max_distance: int = perceptual.DEFAULT_
                                             DuplicateGroup.detection_type == NEAR))
     files = {
         r.id: r for r in db.execute(  # columns only: no full ORM objects for thousands of photos
-            select(DriveFile.id, DriveFile.perceptual_hash, DriveFile.size, DriveFile.created_time,
-                   DriveFile.md5_checksum)
-            .where(*_eligible(account_id), ~_needs_hash(), DriveFile.perceptual_hash.is_not(None))
+            select(DriveFile.id, DriveFile.perceptual_hash, DriveFile.phash_detail, DriveFile.size,
+                   DriveFile.created_time, DriveFile.md5_checksum)
+            .where(*_eligible(account_id), ~_needs_hash(), DriveFile.perceptual_hash.is_not(None),
+                   DriveFile.phash_detail.is_not(None))
         )
     }
+    details: dict[int, perceptual.Detail] = {}
+
+    def detail(fid: int) -> perceptual.Detail:
+        if fid not in details:
+            details[fid] = perceptual.Detail(files[fid].phash_detail)
+        return details[fid]
+
     ranked = sorted(files.values(), key=_keeper_key)  # best copy first, so it becomes the group centre
-    clusters = perceptual.cluster([(f.id, perceptual.from_hex(f.perceptual_hash)) for f in ranked], max_distance)
+    clusters = perceptual.cluster(
+        [(f.id, perceptual.from_hex(f.perceptual_hash)) for f in ranked], max_distance,
+        accept=lambda a, b: perceptual.same_picture(detail(a), detail(b)),
+    )
     groups = []
     for ids in clusters:
         members = sorted((files[i] for i in ids), key=_keeper_key)
@@ -162,7 +177,7 @@ def detect(db: Session, account_id: int, max_distance: int = perceptual.DEFAULT_
         keeper = members[0]
         total = sum(m.size or 0 for m in members)
         groups.append((
-            dict(account_id=account_id, detection_type=NEAR, hash_algorithm="dhash",
+            dict(account_id=account_id, detection_type=NEAR, hash_algorithm=f"fp{perceptual.VERSION}",
                  content_hash=keeper.perceptual_hash, file_count=len(members), total_size=total,
                  potential_savings=total - (keeper.size or 0)),
             [(m.id, "keep" if m.id == keeper.id else "trash") for m in members],

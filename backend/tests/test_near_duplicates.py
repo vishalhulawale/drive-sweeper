@@ -37,17 +37,68 @@ def encode(img: Image.Image, fmt="JPEG", quality=90) -> bytes:
     return buf.getvalue()
 
 
-def test_dhash_survives_resize_and_recompression_but_not_a_different_picture():
+def fp(img, fmt="JPEG", quality=90):
+    return perceptual.fingerprint(encode(img, fmt, quality))
+
+
+def same(a, b):
+    return (perceptual.distance(a.hash, b.hash) <= perceptual.DEFAULT_MAX_DISTANCE
+            and perceptual.same_picture(perceptual.Detail(a.detail), perceptual.Detail(b.detail)))
+
+
+def form_page(seed: int) -> Image.Image:
+    """A printed form: identical grid and headings on every page, different 'handwriting' per page."""
+    rnd = random.Random(seed)
+    img = Image.new("RGB", (240, 340), "white")
+    d = ImageDraw.Draw(img)
+    for y in range(20, 330, 30):
+        d.line([(10, y), (230, y)], fill=(90, 90, 90))
+    for x in (10, 80, 160, 230):
+        d.line([(x, 20), (x, 320)], fill=(90, 90, 90))
+    d.rectangle([10, 4, 230, 16], fill=(40, 40, 40))
+    for y in range(24, 320, 30):  # the entries differ from page to page
+        for x0 in (14, 84, 164):
+            for _ in range(rnd.randrange(2, 6)):
+                x = x0 + rnd.randrange(0, 50)
+                d.rectangle([x, y + 6, x + rnd.randrange(3, 14), y + 14], fill=(20, 20, 20))
+    return img
+
+
+def test_fingerprint_matches_resized_and_recompressed_copies():
     base = picture(1)
-    h = perceptual.dhash_bytes(encode(base))
-    assert perceptual.distance(h, perceptual.dhash_bytes(encode(base.resize((480, 360)), quality=40))) <= 4
-    assert perceptual.distance(h, perceptual.dhash_bytes(encode(base, "PNG"))) <= 2
-    assert perceptual.distance(h, perceptual.dhash_bytes(encode(picture(2)))) > 15
+    f = fp(base)
+    assert len(f.detail) == perceptual.DETAIL_BYTES and f.hash.bit_length() <= perceptual.HASH_BITS
+    assert same(f, fp(base.resize((480, 360)), quality=40))
+    assert same(f, fp(base, "PNG"))
+    assert same(f, fp(base.resize((120, 90))))
+    assert not same(f, fp(picture(2)))
+
+
+def test_fingerprint_rejects_a_colour_only_difference():
+    """Swatches and recoloured icons: identical shapes, different colours."""
+    base = picture(3)
+    r, g, b = base.split()
+    recoloured = Image.merge("RGB", (b, r, g))  # same structure, different hues
+    assert not same(fp(base), fp(recoloured))
+    assert not same(fp(base), fp(base.convert("L").convert("RGB")))  # black-and-white edit
+
+
+def test_fingerprint_rejects_other_pages_of_the_same_form_but_matches_a_resaved_page():
+    page = form_page(1)
+    assert same(fp(page), fp(page, "PNG"))
+    assert same(fp(page), fp(page.resize((180, 255)), quality=60))
+    for other in range(2, 6):
+        assert not same(fp(page), fp(form_page(other))), other
+
+
+def test_flat_images_never_match():
+    blank = Image.new("RGB", (200, 200), (250, 250, 250))
+    assert not same(fp(blank), fp(blank))
 
 
 def test_bad_bytes_raise_badimage():
     with pytest.raises(perceptual.BadImage):
-        perceptual.dhash_bytes(b"not an image")
+        perceptual.fingerprint(b"not an image")
 
 
 def test_cluster_groups_close_hashes_and_ignores_flat_images():
@@ -55,16 +106,16 @@ def test_cluster_groups_close_hashes_and_ignores_flat_images():
     near = a ^ 0b101                       # 2 bits away
     far = a ^ 0xFFFF_FFFF                 # 32 bits away
     flat = 0                              # blank image: no information, must not match anything
-    groups = perceptual.cluster([(1, a), (2, near), (3, far), (4, flat), (5, flat)])
+    groups = perceptual.cluster([(1, a), (2, near), (3, far), (4, flat), (5, flat)], 4, bits=64)
     assert groups == [[1, 2]]
-    assert perceptual.cluster([(1, a), (2, a ^ 0b11111)], max_distance=4) == []        # 5 bits: too far
-    assert perceptual.cluster([(1, a), (2, a ^ 0b11111)], max_distance=5) == [[1, 2]]
+    assert perceptual.cluster([(1, a), (2, a ^ 0b11111)], max_distance=4, bits=64) == []        # 5 bits: too far
+    assert perceptual.cluster([(1, a), (2, a ^ 0b11111)], max_distance=5, bits=64) == [[1, 2]]
 
 
 def test_cluster_finds_pairs_differing_in_every_chunk_position():
     a = 0xAAAA_5555_AAAA_5555
     for bit in range(64):
-        assert perceptual.cluster([(1, a), (2, a ^ (1 << bit))]) == [[1, 2]], bit      # pigeonhole holds
+        assert perceptual.cluster([(1, a), (2, a ^ (1 << bit))], 4, bits=64) == [[1, 2]], bit      # pigeonhole holds
 
 
 def test_cluster_does_not_chain_far_apart_photos_into_one_group():
@@ -73,9 +124,9 @@ def test_cluster_does_not_chain_far_apart_photos_into_one_group():
     c = b ^ (0b111 << 20)          # 3 bits from b, 6 bits from a
     d = c ^ (0b111 << 40)          # 3 bits from c, 9 bits from a
     # Old behaviour: one group [1, 2, 3, 4] through the chain. Now each group centres on its first member.
-    assert perceptual.cluster([(1, a), (2, b), (3, c), (4, d)]) == [[1, 2], [3, 4]]
+    assert perceptual.cluster([(1, a), (2, b), (3, c), (4, d)], 4, bits=64) == [[1, 2], [3, 4]]
     # The preferred (first) item is the centre: with c first, b and d both sit within 3 bits of it.
-    assert perceptual.cluster([(3, c), (1, a), (2, b), (4, d)]) == [[2, 3, 4]]
+    assert perceptual.cluster([(3, c), (1, a), (2, b), (4, d)], 4, bits=64) == [[2, 3, 4]]
 
 
 def test_every_group_member_is_close_to_the_groups_first_member():
@@ -91,7 +142,7 @@ def test_every_group_member_is_close_to_the_groups_first_member():
     rnd.shuffle(items)
     by_key = dict(items)
     order = [k for k, _ in items]
-    groups = perceptual.cluster(items)
+    groups = perceptual.cluster(items, 4, bits=64)
     assert groups
     seen = set()
     for g in groups:
@@ -325,3 +376,19 @@ def test_api(env, monkeypatch):
         assert c.get("/api/near-duplicates/thumbnail/orig?size=5").status_code == 422
     finally:
         app.dependency_overrides.clear()
+
+
+def test_cluster_applies_the_detail_check_to_every_member():
+    a = 0xAAAA_5555_AAAA_5555
+    items = [(1, a), (2, a ^ 1), (3, a ^ 2)]
+    # 2 and 3 are close to 1 by hash, but only 2 passes the second-stage check against the keeper.
+    assert perceptual.cluster(items, 4, bits=64, accept=lambda x, y: {x, y} != {1, 3}) == [[1, 2]]
+    assert perceptual.cluster(items, 4, bits=64, accept=lambda x, y: False) == []
+
+
+def test_fingerprint_rejects_a_slightly_different_shade():
+    """Garment swatches in two close reds: same picture, small but systematic colour shift."""
+    base = picture(5)
+    shifted = Image.eval(base, lambda v: max(0, v - 5))  # every pixel a little darker in every channel
+    assert not same(fp(base), fp(shifted))
+    assert same(fp(base), fp(base.resize((120, 90)), quality=50))  # a small re-saved copy still matches

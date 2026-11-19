@@ -105,7 +105,7 @@ export default function SimilarPhotos() {
                   : '…'}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                Reads a tiny 64-pixel preview of each photo from Google, never the original file. The first run on a
+                Reads a small 256-pixel preview of each photo from Google, never the original file. Photos only match when their shapes and colours are nearly identical. The first run on a
                 large Drive can take several minutes; it can be stopped and resumed, and later runs only look at new
                 or changed photos. Photos under 30 KB are skipped.
               </Typography>
