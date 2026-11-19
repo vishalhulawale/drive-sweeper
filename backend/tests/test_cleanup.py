@@ -12,7 +12,7 @@ from app.models import CleanupOperation, DriveAccount, DriveFile, DuplicateGroup
 from app.services import cleanup_service as cs
 from app.services import duplicate_detector as dd
 from app.services import oauth_service
-from app.services.google_drive import DriveError
+from app.services.google_drive import DriveError, NotFound
 from app.workers import cleanup_worker
 
 
@@ -25,8 +25,11 @@ class FakeDrive:
                      for f in files}
         self.calls = []
         self.fail_on = set()
+        self.deleted = set()  # permanently deleted in Drive: every call returns 404
 
     def get_file(self, fid):
+        if fid in self.deleted:
+            raise NotFound("Drive API error 404: notFound")
         return dict(self.live[fid])
 
     def set_trashed(self, fid, trashed):
@@ -94,6 +97,32 @@ def test_execute_trashes_only_selected_and_records_history(env):
     assert drive.calls == [("t1", True)]
     assert db.scalar(select(DriveFile.trashed).where(DriveFile.google_file_id == "t1")) is True
     assert ops[0].previous_parent_ids == ["P"]
+
+
+def test_file_deleted_in_drive_is_dropped_instead_of_failing_every_run(env):
+    db, acc, drive = env
+    select_action(db, acc, {"t1", "t2"})
+    drive.deleted.add("t1")  # the user deleted it in Drive after the scan
+    ops = cs.execute(db, acc.id, drive, expected_count=2)
+    by_name = {o.google_file_id: o for o in ops}
+    assert by_name["t1"].status == "skipped" and by_name["t1"].error_message == cs.GONE
+    assert by_name["t2"].status == "completed"
+    assert drive.calls == [("t2", True)]
+    assert db.scalar(select(DriveFile.id).where(DriveFile.google_file_id == "t1")) is None
+    assert cs.build_plan(db, acc.id)["count"] == 0  # no longer listed in Cleanup
+    db.refresh(by_name["t1"])
+    assert by_name["t1"].drive_file_id is None and by_name["t1"].file_name == "copy1.png"  # history kept
+
+
+def test_keeper_deleted_in_drive_skips_group_and_is_dropped(env):
+    db, acc, drive = env
+    select_action(db, acc, {"t1"})
+    drive.deleted.add("k")
+    ops = cs.execute(db, acc.id, drive, expected_count=1)
+    assert [(o.status, o.error_message) for o in ops] == [("skipped", cs.KEEPER_GONE)]
+    assert drive.calls == []
+    assert db.scalar(select(DriveFile.id).where(DriveFile.google_file_id == "k")) is None
+    assert db.scalar(select(DriveFile.trashed).where(DriveFile.google_file_id == "t1")) is False
 
 
 def test_expected_count_mismatch_is_rejected(env):

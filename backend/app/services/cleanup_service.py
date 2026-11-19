@@ -11,12 +11,12 @@ import logging
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models import CleanupOperation, DriveFile, DuplicateGroup, DuplicateGroupFile
 from app.services import duplicate_detector
-from app.services.google_drive import DriveError
+from app.services.google_drive import DriveError, NotFound
 
 log = logging.getLogger(__name__)
 
@@ -126,6 +126,7 @@ def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[Clea
     values (ids, checksums), never ORM objects. Each group's kept copy is checked once, and every file
     of that group waits for that check before it is touched."""
     keeper_checks: dict[int, Future] = {}  # group_id -> future of the error message (None = verified)
+    keeper_gids: dict[int, str] = {}       # group_id -> the keeper's Drive id
     running: dict[Future, tuple[CleanupOperation, DriveFile]] = {}
     ops: list[CleanupOperation] = []
 
@@ -134,7 +135,10 @@ def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[Clea
         for fut in done:
             op, f = running.pop(fut)
             status, error, parents = fut.result()
-            if status == "completed":
+            if status == "gone":  # deleted in Drive already: drop our stale row so it stops being listed
+                _forget(db, account_id, f.google_file_id)
+                status = "skipped"
+            elif status == "completed":
                 f.trashed = True
                 f.trashed_time = _now()
                 op.previous_parent_ids = parents or f.parent_ids
@@ -152,6 +156,7 @@ def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[Clea
             gid = job["group_id"]
             if gid not in keeper_checks:
                 keeper = db.get(DriveFile, job["keeper_id"])
+                keeper_gids[gid] = keeper.google_file_id
                 keeper_checks[gid] = pool.submit(
                     _check_keeper, client, keeper.google_file_id, job["keeper_md5"], job.get("keeper_sha256"))
             f = db.get(DriveFile, job["file_id"])
@@ -163,8 +168,24 @@ def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[Clea
         while running:
             collect()
 
+    for gid, check in keeper_checks.items():
+        if check.result() == KEEPER_GONE:
+            _forget(db, account_id, keeper_gids[gid])
+    db.commit()
     duplicate_detector.refresh_all(db, account_id)
     return ops
+
+
+GONE = "No longer in Drive (deleted outside this app); removed from the list"
+KEEPER_GONE = ("The copy you are keeping no longer exists in Drive; nothing was trashed in this group. "
+               "It has been removed from the list, so choose another copy to keep.")
+
+
+def _forget(db: Session, account_id: int, google_file_id: str) -> None:
+    """Delete our row for a file Drive says does not exist, as sync does for removed files. Group
+    memberships go with it (cascade) and cleanup history keeps its own copy of the name and size."""
+    db.execute(delete(DriveFile).where(DriveFile.account_id == account_id,
+                                       DriveFile.google_file_id == google_file_id))
 
 
 def _trash_after_keeper(keeper_check: Future, client, google_file_id: str, md5: str, sha256: str | None):
@@ -183,6 +204,8 @@ def _trash_one(client, google_file_id: str, md5: str, sha256: str | None) -> tup
             return "skipped", problem, None
         client.set_trashed(google_file_id, True)
         return "completed", None, live.get("parents")
+    except NotFound:
+        return "gone", GONE, None
     except DriveError as err:
         log.warning("Trash failed for %s: %s", google_file_id, err)
         return "failed", str(err), None
@@ -243,6 +266,8 @@ def _changed(live: dict, md5: str, sha256: str | None) -> bool:
 def _check_keeper(client, keeper_google_id: str, md5: str, sha256: str | None = None) -> str | None:
     try:
         live = client.get_file(keeper_google_id)
+    except NotFound:
+        return KEEPER_GONE
     except DriveError as err:
         return f"Could not verify the copy you are keeping ({err}); nothing was trashed in this group."
     if live.get("trashed") or _changed(live, md5, sha256):

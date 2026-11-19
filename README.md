@@ -140,6 +140,10 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Cleanup drops files that were already deleted in Drive
+- Bug: 8 files deleted permanently in Drive stayed in Cleanup. Drive answered 404 on each run, the operation was recorded as failed, the file stayed marked Trash, and it came back every time.
+- `DriveClient` now raises `NotFound` (a `DriveError`) on 404. During a cleanup run, a file Drive says no longer exists is recorded as skipped ("No longer in Drive") and its stale row is deleted, as sync does for removed files; its group membership goes with it, and the history row keeps its name and size. If the kept copy no longer exists, nothing in that group is trashed and the keeper's row is dropped, so you can choose another copy. Two new tests.
+
 ### 2026-11-19 - Faster Move to Trash (streaming, 10 parallel Drive calls)
 - A real run measured 240 files a minute (4 a second): every file needs a live re-check and a trash call (about 0.5 s each), only 4 ran at once, and work went in rounds of 40 that each waited for their slowest file.
 - `cleanup_service.process` now streams files through 10 workers with at most 20 in flight; a new file starts as soon as a worker is free. Each group's kept copy is still checked once, and that group's files wait for the result. Cancel skips every file not yet started (at most 20 finish after it). The trash call now asks Drive for only `id,trashed` back. Database work stays on the main thread and the safety checks are unchanged. New test: a keeper that fails its check skips the whole group.

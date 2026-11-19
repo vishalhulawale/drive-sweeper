@@ -39,6 +39,10 @@ class DriveError(Exception):
     pass
 
 
+class NotFound(DriveError):
+    """The file no longer exists in Drive (deleted permanently, or Trash was emptied)."""
+
+
 class InvalidPageToken(DriveError):
     """The saved nextPageToken expired or is no longer valid; the listing must restart."""
 
@@ -86,6 +90,8 @@ class DriveClient:
             except HttpError as err:
                 if page_token and err.resp.status == 400:
                     raise InvalidPageToken(str(err)) from err
+                if err.resp.status == 404:
+                    raise NotFound(f"Drive API error 404: {_reason(err) or err}") from err
                 if _reason(err) == "insufficientPermissions":
                     raise DriveError(
                         "Google Drive permission not granted. Disconnect, reconnect, and tick the "
