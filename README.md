@@ -131,6 +131,11 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Fix: similar-photo groups stayed stale after a crashed analysis
+- The photo analysis regrouped only after a clean finish. When a run crashed, the hashes it had already saved were ignored until a later clean run (this is why the page showed 14 groups for so long).
+- `run_hashing` now regroups in a `finally` step, so a crashed or stopped run still turns every saved hash into groups. A failure while regrouping is logged and does not hide the original error.
+- Tests: 99 backend tests passing (1 new; it fails on the old code).
+
 ### 2026-11-19 - Fix: a full scan did not refresh duplicate groups
 - Sync, cleanup and restore regrouped duplicates afterwards, but a full scan did not, so exact and similar-photo groups stayed stale until you clicked **Find duplicates** (new copies missing, removed ones still listed until the next regroup).
 - `file_scanner.run_scan` now regroups both kinds once a scan completes (your keep/trash choices are kept). Failed and cancelled scans leave groups alone, and a regroup error is logged without marking a complete scan as failed.

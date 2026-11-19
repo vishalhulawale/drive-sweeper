@@ -79,44 +79,51 @@ def run_hashing(session_factory, client, account_id: int, cancel: threading.Even
     """Hash every image that still needs it. Safe to stop and restart at any time."""
     cancel = cancel or threading.Event()
     done = skipped = 0
-    with session_factory() as db, ThreadPoolExecutor(FETCH_WORKERS) as pool, ThreadPoolExecutor(1) as lister:
-        # List the next page while the current one is being downloaded and hashed.
-        next_page = lister.submit(client.list_image_thumbnails_page, None)
-        while True:
-            page, token = next_page.result()
-            if token is not None and not cancel.is_set():
-                next_page = lister.submit(client.list_image_thumbnails_page, token)
-            links = {f["id"]: f.get("thumbnailLink") for f in page}
-            if links:
-                rows = db.execute(
-                    select(DriveFile.id, DriveFile.google_file_id, DriveFile.md5_checksum)
-                    .where(*_eligible(account_id), DriveFile.google_file_id.in_(list(links)), _needs_hash())
-                ).all()
+    try:
+        with session_factory() as db, ThreadPoolExecutor(FETCH_WORKERS) as pool, ThreadPoolExecutor(1) as lister:
+            # List the next page while the current one is being downloaded and hashed.
+            next_page = lister.submit(client.list_image_thumbnails_page, None)
+            while True:
+                page, token = next_page.result()
+                if token is not None and not cancel.is_set():
+                    next_page = lister.submit(client.list_image_thumbnails_page, token)
+                links = {f["id"]: f.get("thumbnailLink") for f in page}
+                if links:
+                    rows = db.execute(
+                        select(DriveFile.id, DriveFile.google_file_id, DriveFile.md5_checksum)
+                        .where(*_eligible(account_id), DriveFile.google_file_id.in_(list(links)), _needs_hash())
+                    ).all()
 
-                def work(r):
-                    if cancel.is_set():
-                        return None  # stop promptly; untouched rows stay pending
-                    return _hash_one(client, links[r.google_file_id])
+                    def work(r):
+                        if cancel.is_set():
+                            return None  # stop promptly; untouched rows stay pending
+                        return _hash_one(client, links[r.google_file_id])
 
-                results = list(pool.map(work, rows))
-                now = datetime.now(timezone.utc)
-                updates = []
-                for r, res in zip(rows, results):
-                    if res is None or not res[1]:
-                        skipped += 1
-                        continue
-                    updates.append({"id": r.id, "perceptual_hash": res[0], "phash_attempted_at": now,
-                                    "phash_md5": r.md5_checksum})
-                if updates:
-                    db.bulk_update_mappings(DriveFile, updates)
-                    done += len(updates)
-                db.commit()  # progress survives a stop or crash
-                if progress:
-                    progress(done)
-            if cancel.is_set() or token is None:
-                break
-    with session_factory() as db:
-        detect(db, account_id)
+                    results = list(pool.map(work, rows))
+                    now = datetime.now(timezone.utc)
+                    updates = []
+                    for r, res in zip(rows, results):
+                        if res is None or not res[1]:
+                            skipped += 1
+                            continue
+                        updates.append({"id": r.id, "perceptual_hash": res[0], "phash_attempted_at": now,
+                                        "phash_md5": r.md5_checksum})
+                    if updates:
+                        db.bulk_update_mappings(DriveFile, updates)
+                        done += len(updates)
+                    db.commit()  # progress survives a stop or crash
+                    if progress:
+                        progress(done)
+                if cancel.is_set() or token is None:
+                    break
+    finally:
+        # Regroup from every hash saved so far, also when the run crashed or was stopped part way:
+        # those hashes are valid, and the previous groups would otherwise stay stale until a clean run.
+        try:
+            with session_factory() as db:
+                detect(db, account_id)
+        except Exception:
+            log.exception("Regrouping similar photos failed")
     return {"hashed": done, "retry_later": skipped, "cancelled": cancel.is_set()}
 
 

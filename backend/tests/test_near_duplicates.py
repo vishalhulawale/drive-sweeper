@@ -190,6 +190,22 @@ def test_hashing_groups_near_duplicates_and_reports_status(env):
     assert groups[0].potential_savings == 900_000 + 200_000 + 900_000 - 900_000
 
 
+def test_groups_are_rebuilt_from_saved_hashes_when_a_run_crashes(env):
+    db, acc, drive = env
+    listing = drive.list_image_thumbnails_page
+
+    def fails_on_second_page(token=None):
+        if token:
+            raise RuntimeError("listing blew up")
+        return listing(token)
+
+    drive.list_image_thumbnails_page = fails_on_second_page
+    with pytest.raises(RuntimeError):
+        nds.run_hashing(SessionLocal, drive, acc.id)
+    # Page 1 (orig, small) was hashed and saved before the crash, so its group exists right away.
+    assert nds.status(db, acc.id)["groups"] == 1
+
+
 def test_second_run_only_fetches_what_changed(env):
     db, acc, drive = env
     nds.run_hashing(SessionLocal, drive, acc.id)
