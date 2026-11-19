@@ -67,6 +67,40 @@ def test_cluster_finds_pairs_differing_in_every_chunk_position():
         assert perceptual.cluster([(1, a), (2, a ^ (1 << bit))]) == [[1, 2]], bit      # pigeonhole holds
 
 
+def test_cluster_does_not_chain_far_apart_photos_into_one_group():
+    a = 0xAAAA_5555_AAAA_5555
+    b = a ^ 0b111                  # 3 bits from a
+    c = b ^ (0b111 << 20)          # 3 bits from b, 6 bits from a
+    d = c ^ (0b111 << 40)          # 3 bits from c, 9 bits from a
+    # Old behaviour: one group [1, 2, 3, 4] through the chain. Now each group centres on its first member.
+    assert perceptual.cluster([(1, a), (2, b), (3, c), (4, d)]) == [[1, 2], [3, 4]]
+    # The preferred (first) item is the centre: with c first, b and d both sit within 3 bits of it.
+    assert perceptual.cluster([(3, c), (1, a), (2, b), (4, d)]) == [[2, 3, 4]]
+
+
+def test_every_group_member_is_close_to_the_groups_first_member():
+    rnd = random.Random(7)
+    seeds = [rnd.getrandbits(64) | 0xF0 for _ in range(20)]
+    items, n = [], 0
+    for s in seeds:                # random walks: lots of chains, as in a burst of photos
+        h = s
+        for _ in range(8):
+            items.append((n, h))
+            n += 1
+            h ^= 1 << rnd.randrange(64)
+    rnd.shuffle(items)
+    by_key = dict(items)
+    order = [k for k, _ in items]
+    groups = perceptual.cluster(items)
+    assert groups
+    seen = set()
+    for g in groups:
+        centre = min(g, key=order.index)  # the earliest item in the input is the centre
+        assert all(perceptual.distance(by_key[centre], by_key[k]) <= 4 for k in g)
+        assert not seen & set(g)          # a photo is in at most one group
+        seen |= set(g)
+
+
 # ---- service ------------------------------------------------------------------------------------
 
 

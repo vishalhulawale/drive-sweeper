@@ -52,10 +52,15 @@ def is_informative(h: int) -> bool:
 
 
 def cluster(items: list[tuple[int, int]], max_distance: int = DEFAULT_MAX_DISTANCE) -> list[list[int]]:
-    """items: (key, hash). Returns groups (size >= 2) of keys connected by distance <= max_distance.
+    """items: (key, hash), in order of preference (best copy first). Returns groups (size >= 2) in which
+    EVERY member is within max_distance of the group's first-preferred member, its suggested keeper.
 
-    Pigeonhole: split the hash into max_distance + 1 chunks; two hashes within max_distance bits of
-    each other must be identical in at least one chunk, so only same-chunk pairs need comparing."""
+    Step 1, candidates: pigeonhole. Split the hash into max_distance + 1 chunks; two hashes within
+    max_distance bits of each other must be identical in at least one chunk, so only same-chunk pairs
+    need comparing. Close pairs are joined into connected components.
+    Step 2, no chaining: a component can link A~B~C although A and C are far apart (burst shots, a
+    slowly panning series), so it is split around centres. The most preferred remaining member takes
+    everything still unassigned within max_distance of itself; repeat for the rest."""
     items = [(k, h) for k, h in items if is_informative(h)]
     n_chunks = max_distance + 1
     bounds = [HASH_BITS * i // n_chunks for i in range(n_chunks + 1)]
@@ -84,7 +89,16 @@ def cluster(items: list[tuple[int, int]], max_distance: int = DEFAULT_MAX_DISTAN
                         ra, rb = find(ki), find(kj)
                         if ra != rb:
                             parent[ra] = rb
-    groups: dict[int, list[int]] = defaultdict(list)
-    for k, _ in items:
-        groups[find(k)].append(k)
-    return [sorted(g) for g in groups.values() if len(g) >= 2]
+    components: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    for k, h in items:  # keeps the caller's preference order inside each component
+        components[find(k)].append((k, h))
+    result = []
+    for members in components.values():
+        while len(members) >= 2:
+            centre_h = members[0][1]
+            group = [m for m in members if distance(centre_h, m[1]) <= max_distance]
+            if len(group) >= 2:
+                result.append(sorted(k for k, _ in group))
+            taken = {k for k, _ in group}
+            members = [m for m in members if m[0] not in taken]
+    return result

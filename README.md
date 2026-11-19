@@ -131,6 +131,13 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Fix: similar-photo groups chained unrelated photos together
+- Grouping joined any two photos within 4 bits, so A~B~C landed in one group even when A and C were far apart. On your Drive this produced groups of 60, 54 and 44 photos, with members up to 16 bits from the suggested keeper, so "Trash all but the best" could have trashed photos that only resembled a neighbour.
+- `perceptual.cluster` now splits each connected set around centres: the best copy (largest, then oldest) takes every unassigned photo within 4 bits of itself, then the next best remaining does the same. The suggested keeper is always the centre, so every photo in a group is within 4 bits of the photo you keep, and each photo is in one group only.
+- Real Drive after re-grouping: 830 groups (was 783), 2,431 photos (was 2,510), up to 7.2 GB (was 8.1 GB); largest distance from a keeper is now 4 bits (was 16).
+- **Still open (new finding):** a 64-bit greyscale fingerprint cannot tell some different images apart. Your largest groups are pages of one scanned document (54 pages), flat colour swatches that differ only in colour (44), and bursts of camera shots. Review these by eye; a stronger fingerprint is a separate fix.
+- Tests: 91 backend tests passing (2 new; both fail on the old code).
+
 ### 2026-11-19 - Fix: "all groups" suggestions could mark similar photos for Trash
 - Found in a requirements/implementation review. **Trash newer copies (all groups)** on the Duplicates page applied the suggestion to every group, including similar-photo groups, so one click would have marked about 1,700 visually similar (not identical) photos for Trash. No similar-photo choices had been recorded yet, so nothing was affected.
 - `POST /api/duplicates/apply-suggestions` now takes `kind` (`exact` by default, or `near`) and only changes groups of that kind, for both `all_groups` and `group_ids`. The Similar photos page sends `near`.

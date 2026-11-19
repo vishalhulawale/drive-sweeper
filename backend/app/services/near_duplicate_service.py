@@ -156,9 +156,8 @@ def detect(db: Session, account_id: int, max_distance: int = perceptual.DEFAULT_
             select(DriveFile).where(*_eligible(account_id), ~_needs_hash(), DriveFile.perceptual_hash.is_not(None))
         )
     }
-    clusters = perceptual.cluster(
-        [(fid, perceptual.from_hex(f.perceptual_hash)) for fid, f in files.items()], max_distance
-    )
+    ranked = sorted(files.values(), key=_keeper_key)  # best copy first, so it becomes the group centre
+    clusters = perceptual.cluster([(f.id, perceptual.from_hex(f.perceptual_hash)) for f in ranked], max_distance)
     for ids in clusters:
         members = sorted((files[i] for i in ids), key=_keeper_key)
         if len({m.md5_checksum for m in members}) < 2:
