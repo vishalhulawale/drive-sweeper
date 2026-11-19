@@ -3,6 +3,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import HistoryIcon from '@mui/icons-material/History'
+import PieChartIcon from '@mui/icons-material/PieChart'
 import SettingsIcon from '@mui/icons-material/Settings'
 import AppBar from '@mui/material/AppBar'
 import Box from '@mui/material/Box'
@@ -22,6 +23,7 @@ const WIDTH = 220
 const NAV: { to: string; label: string; icon: ReactNode }[] = [
   { to: '/', label: 'Dashboard', icon: <DashboardIcon /> },
   { to: '/files', label: 'Files', icon: <FolderOpenIcon /> },
+  { to: '/analytics', label: 'Analytics', icon: <PieChartIcon /> },
   { to: '/duplicates', label: 'Duplicates', icon: <ContentCopyIcon /> },
   { to: '/cleanup', label: 'Cleanup', icon: <DeleteSweepIcon /> },
   { to: '/scans', label: 'Scan history', icon: <HistoryIcon /> },

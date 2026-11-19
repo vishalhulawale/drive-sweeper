@@ -90,7 +90,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 1 | Foundation and Google Drive integration (inventory) | Done (UI checked, backend restart issue fixed) |
 | 2 | Exact duplicate detection and review UI | Done (detection, API and review UI built) |
 | 3 | Manual cleanup (Trash, history, restore) | Built and tested with a fake Drive; needs you to grant the Trash permission and try it on a small selection |
-| 4 | Storage analytics | Not started |
+| 4 | Storage analytics | Done (overview, by type, by year, largest folders and files) |
 | 5 | Smart file organizer | Not started |
 | 6 | Incremental sync (Changes API) | Not started |
 | 7 | Advanced features | Not started |
@@ -130,6 +130,12 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-19 - Phase 4: storage analytics
+- `services/analytics_service.py` (read-only, from the local inventory): storage by type (images, videos, audio, documents, archives, other), storage by year created, largest files, largest folders (recursive, cycle-safe). Counts only files you own and that are not trashed; Trash is reported separately because Drive still counts it. API under `/api/analytics` (`overview`, `by-year`, `largest-files`, `largest-folders`).
+- Real Drive: about 106 GB in 23,239 files (images 55.6 GB, videos 40.4 GB, archives 5.8 GB, documents 3.9 GB), 9.5 GB sitting in Trash, ~270 MB reclaimable from duplicates. Responses take 0.1-0.2 s. About 226 files carry a bogus 1979/1980 created date (a Drive upload artifact), so they show up under those years.
+- Frontend: Analytics page with stat cards, bar charts (no chart library), largest folders linking into the file explorer, and a largest-files table. Sidebar entry added.
+- 48 backend tests passing (6 new); frontend typecheck, lint and build clean. Not yet checked visually.
 
 ### 2026-11-19 - Cleanup handles all groups (background runs)
 - Limit raised from 100 to 10,000 files per run. Because trashing thousands of files takes a long time (about 2-3 Drive calls per file, so roughly 20-30 minutes for ~4,200 files), `POST /api/cleanup/execute` now queues the work and returns 202; a background worker (`workers/cleanup_worker.py`) processes it. All the same per-file safety checks still apply.
