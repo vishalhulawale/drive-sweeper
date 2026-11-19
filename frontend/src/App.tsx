@@ -4,7 +4,7 @@ import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuthStatus } from './hooks/useGoogleDrive'
-import MainLayout from './layouts/MainLayout'
+import AppShell from './layouts/AppShell'
 import ConnectPage from './pages/ConnectPage'
 import Analytics from './pages/Analytics'
 import Cleanup from './pages/Cleanup'
@@ -41,7 +41,7 @@ export default function App() {
 
   return (
     <Routes>
-      <Route element={<MainLayout />}>
+      <Route element={<AppShell />}>
         <Route index element={<Dashboard />} />
         <Route path="files" element={<FileExplorer />} />
         <Route path="analytics" element={<Analytics />} />
