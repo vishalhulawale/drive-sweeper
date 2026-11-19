@@ -7,9 +7,11 @@ Nothing here changes anything in Drive.
 """
 import logging
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
+import httplib2
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -20,7 +22,7 @@ from app.services.google_drive import DriveError
 log = logging.getLogger(__name__)
 
 MIN_SIZE = 30 * 1024        # tiny images (icons, emoji) match each other far too easily
-FETCH_WORKERS = 32          # I/O-bound (thumbnail downloads); each thread keeps its own HTTP connection
+FETCH_WORKERS = 16          # I/O-bound (thumbnail downloads); each thread keeps its own HTTP connection
 THUMB_PX = 64
 NEAR = "near"
 
@@ -68,9 +70,21 @@ def _hash_one(client, link: str | None) -> tuple[str | None, bool]:
         return perceptual.to_hex(perceptual.dhash_bytes(client.fetch_thumbnail(link, THUMB_PX))), True
     except perceptual.BadImage:
         return None, True
-    except DriveError as err:
+    except (DriveError, OSError, httplib2.HttpLib2Error) as err:  # OSError covers timeouts/resets
         log.debug("Thumbnail fetch failed: %s", err)
         return None, False
+
+
+def _list_page(client, token, attempts: int = 4):
+    """List one page of images, retrying network hiccups (timeouts) instead of killing the job."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return client.list_image_thumbnails_page(token)
+        except (OSError, httplib2.HttpLib2Error) as err:
+            if attempt == attempts:
+                raise
+            log.warning("Image listing failed (%s), retrying", err)
+            time.sleep(2 * attempt)
 
 
 def run_hashing(session_factory, client, account_id: int, cancel: threading.Event | None = None,
@@ -80,11 +94,11 @@ def run_hashing(session_factory, client, account_id: int, cancel: threading.Even
     done = skipped = 0
     with session_factory() as db, ThreadPoolExecutor(FETCH_WORKERS) as pool, ThreadPoolExecutor(1) as lister:
         # List the next page while the current one is being downloaded and hashed.
-        next_page = lister.submit(client.list_image_thumbnails_page, None)
+        next_page = lister.submit(_list_page, client, None)
         while True:
             page, token = next_page.result()
             if token is not None and not cancel.is_set():
-                next_page = lister.submit(client.list_image_thumbnails_page, token)
+                next_page = lister.submit(_list_page, client, token)
             links = {f["id"]: f.get("thumbnailLink") for f in page}
             if links:
                 rows = db.execute(
