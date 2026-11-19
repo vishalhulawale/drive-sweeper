@@ -289,6 +289,37 @@ def test_archives_run_in_parallel(env):
     assert drive.peak_downloads > 1
 
 
+def test_files_upload_in_parallel_within_one_archive(env):
+    db, acc, drive, archive = env
+    f = archive("Z", "many.zip", make_zip({f"f{i:02}.txt": bytes([i]) for i in range(40)}))
+    lock, state = threading.Lock(), {"active": 0, "peak": 0}
+    real_upload = drive.upload_file
+
+    def counted(*a, **kw):
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        try:
+            time.sleep(0.02)
+            return real_upload(*a, **kw)
+        finally:
+            with lock:
+                state["active"] -= 1
+
+    drive.upload_file = counted
+    [ex] = run(db, acc, drive, [f])
+    assert ex.status == "completed", ex.error_message
+    assert state["peak"] > 4 and state["peak"] <= svc.UPLOAD_WORKERS
+
+
+def test_upload_buffer_is_capped_by_bytes(monkeypatch):
+    monkeypatch.setattr(svc, "BUFFER_BYTES", 100)
+    assert svc._buffer_bytes([10] * 50) == 100   # the QUEUE_DEPTH biggest would be 240
+    assert svc._buffer_bytes([60, 60, 60]) == 100
+    assert svc._buffer_bytes([500, 1]) == 500   # one file bigger than the cap still fits
+    assert svc._buffer_bytes([]) == 0
+
+
 def test_cancel_skips_queued_archives(env):
     db, acc, drive, archive = env
     files = [archive(f"Z{i}", f"a{i}.zip", make_zip({"x.txt": b"x"})) for i in range(2)]

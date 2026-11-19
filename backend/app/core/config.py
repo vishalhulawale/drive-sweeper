@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # tool (unrar, unar, bsdtar or 7z). Empty means the system temp folder / auto-detect.
     extract_dir: str = ""
     unrar_tool: str = ""
+    archive_upload_workers: int = 12  # files uploaded at the same time within one archive
     # Organizer content classification (optional). The Anthropic SDK also finds credentials on its own
     # (ANTHROPIC_API_KEY in the environment or an `ant auth login` profile); this is for a key in .env.
     anthropic_api_key: str = ""

@@ -36,7 +36,11 @@ from app.services.google_drive import FOLDER_MIME, DriveError, Interrupted, NotF
 log = logging.getLogger(__name__)
 
 ARCHIVE_WORKERS = 3     # archives extracted at the same time
-UPLOAD_WORKERS = 4      # uploads in parallel within one archive
+# Uploads in parallel within one archive. Each small file is one Drive request whose time is mostly
+# round-trip latency, so many at once are needed to fill the connection; Drive's backoff handles throttling.
+UPLOAD_WORKERS = max(settings.archive_upload_workers, 1)
+QUEUE_DEPTH = UPLOAD_WORKERS * 2    # extracted files waiting or uploading, so workers never wait on extraction
+BUFFER_BYTES = 4 * 1024**3          # ...and at most this much of them on disk (unless one file is bigger)
 MAX_ARCHIVES = 200      # per run
 DISK_MARGIN = 2 * 1024**3   # always leave this much free on the server's disk
 COPY_CHUNK = 1024 * 1024
@@ -282,15 +286,15 @@ def extract_one(db: Session, client, ex: ArchiveExtraction, cancelled: threading
             ex.files_done = ex.files_skipped = ex.bytes_done = 0
             db.commit()
             # Room for the files waiting to upload at once, on top of the archive itself.
-            biggest = sorted((e.size for e in entries), reverse=True)[: UPLOAD_WORKERS * 2]
-            disk.acquire(sum(biggest), cancelled)
-            held_disk += sum(biggest)
+            buffer = _buffer_bytes([e.size for e in entries])
+            disk.acquire(buffer, cancelled)
+            held_disk += buffer
             drive.acquire(ex.bytes_total, cancelled)
             held_drive = ex.bytes_total
 
             root_id, resumed = _target_folder(db, client, ex, parent_id)
             _stage(db, ex, "uploading")
-            failures = _upload_all(db, client, ex, entries, root_id, resumed, workdir, cancelled)
+            failures = _upload_all(db, client, ex, entries, root_id, resumed, workdir, cancelled, buffer)
         if failures:
             raise DriveError(f"{len(failures)} of {ex.files_total} files could not be uploaded "
                              f"(first: {failures[0]}). The archive was kept; extract it again to retry them.")
@@ -341,8 +345,16 @@ def _target_folder(db: Session, client, ex: ArchiveExtraction, parent_id: str) -
     return ex.folder_google_id, False
 
 
-def _upload_all(db, client, ex, entries, root_id, resumed, workdir, cancelled) -> list[str]:
-    """Extract and upload every entry; returns the failure messages. DB work stays on this thread."""
+def _buffer_bytes(sizes: list[int]) -> int:
+    """Disk space for the extracted files waiting to upload: the QUEUE_DEPTH biggest, capped at
+    BUFFER_BYTES but never less than the biggest single file."""
+    biggest = sorted(sizes, reverse=True)[:QUEUE_DEPTH]
+    return min(sum(biggest), max(BUFFER_BYTES, biggest[0] if biggest else 0))
+
+
+def _upload_all(db, client, ex, entries, root_id, resumed, workdir, cancelled, buffer) -> list[str]:
+    """Extract and upload every entry, keeping up to QUEUE_DEPTH files (and `buffer` bytes) extracted
+    ahead of the uploads; returns the failure messages. DB work stays on this thread."""
     folders: dict[tuple[str, ...], str] = {(): root_id}
     existing: dict[str, dict[str, dict]] = {}  # folder id -> {name: child} (only when resuming)
     failures: list[str] = []
@@ -391,7 +403,8 @@ def _upload_all(db, client, ex, entries, root_id, resumed, workdir, cancelled) -
                     collect(block=True)
                 db.commit()
                 raise Cancelled()
-            while len(running) >= UPLOAD_WORKERS * 2:
+            while running and (len(running) >= QUEUE_DEPTH
+                               or sum(r[1] for r in running.values()) + entry.size > buffer):
                 collect(block=True)
             path = "/".join(entry.parts)
             try:

@@ -12,7 +12,7 @@ DriveClean scans your Drive's metadata into a local PostgreSQL database, finds e
 - **Storage analytics**: usage by file type and year, the largest files, and a folder treemap.
 - **Trash overview**: how much space Trash uses and when Drive will delete each item.
 - **File organizer**: sorts loose files into topic folders by what they contain (hospital records into Medical, mark sheets into Education), using Claude to read a short excerpt of each file. Existing folders are reused and missing ones are created when you move. Without an Anthropic API key, it suggests existing folders from file types, dates and naming patterns instead. Moves can be undone.
-- **Archives**: extracts zip, rar and tar files into a new folder with the archive's name, next to the archive, several archives at a time. Every uploaded file is checked against the extracted one, and only then does the archive move to Trash (restorable). An interrupted or cancelled extraction continues where it stopped.
+- **Archives**: extracts zip, rar and tar files into a new folder with the archive's name, next to the archive, several archives at a time, uploading many files in parallel (`ARCHIVE_UPLOAD_WORKERS`, default 12). Every uploaded file is checked against the extracted one, and only then does the archive move to Trash (restorable). An interrupted or cancelled extraction continues where it stopped.
 - **Incremental sync**: after the first full scan, the Drive Changes API keeps the inventory current in seconds. It runs on a schedule and when you open the review pages.
 
 ## How it works
