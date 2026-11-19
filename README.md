@@ -131,6 +131,10 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - UI redesign plan
+- Reviewed the current UI (code and screenshots) and wrote [docs/redesign-plan.md](docs/redesign-plan.md): move from MUI to Cloudscape (the AWS console design system), Geist font, light theme by default with dark mode and density options in Settings, a new favicon, an AWS-console-style shell (top bar, grouped side menu, breadcrumbs, notifications, help panel), and a page-by-page redesign.
+- Planned in 6 phases (foundation → dashboard → review pages → cleanup/trash → remaining pages → remove MUI). Nothing built yet.
+
 ### 2026-11-19 - SHA-256 verification of exact duplicates (product decision, was missing)
 - The plan says duplicates are found by MD5 and verified with SHA-256, but `sha256_checksum` was never filled. Drive reports `sha256Checksum` as ordinary metadata (checked: all 940 files with an MD5 on one listing page have it), so no file content is downloaded.
 - Scans and sync now store it (Drive's value always wins, like MD5). Exact groups need MD5 + size **and** SHA-256: a same-MD5 set whose SHA-256 values differ is split, files without a SHA-256 in such a set are left out, and sets with no SHA-256 at all fall back to MD5 (`hash_algorithm` is `md5+sha256` or `md5`). Cleanup also re-checks SHA-256 live, so a file whose SHA-256 changed is skipped.
