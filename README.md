@@ -131,6 +131,10 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Fix: choosing files to delete was unclear
+- A highlighted "Trash" button on the Duplicates page was only a suggestion, so Cleanup showed "Nothing selected". Now clicking the suggestion records it, and "Use suggestions for this page" records all suggestions at once (`POST /api/duplicates/apply-suggestions`, records choices only). The page also links to Cleanup and explains the two-step flow: mark Trash on Duplicates, then Move to Trash on Cleanup.
+- 39 backend tests passing; frontend clean.
+
 ### 2026-11-19 - Phase 3: manual cleanup (Trash, history, restore)
 - Permission: the app still scans with the read-only scope. Moving files to Trash needs the full `drive` scope, requested only when you click **Allow cleanup** (`/api/auth/google?upgrade=trash`). New column `drive_accounts.granted_scopes` (migration `a3c1d0e4f5b6`, applied); `/api/auth/status` now reports `can_trash`.
 - `services/cleanup_service.py`: only files you marked **Trash** are touched (suggestions are never acted on). Every group must keep at least one copy, and that copy is re-checked live in Drive. Each file is re-checked right before the change (not already trashed, owned by you, MD5 unchanged, Drive allows trashing). Trash only, never permanent delete. Per-file results are recorded in `cleanup_operations` (completed, skipped, failed) with previous parents, then duplicate groups are rebuilt.
