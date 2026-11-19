@@ -1,20 +1,8 @@
-import Alert from '@cloudscape-design/components/alert'
-import Box from '@cloudscape-design/components/box'
-import Button from '@cloudscape-design/components/button'
-import Container from '@cloudscape-design/components/container'
-import ContentLayout from '@cloudscape-design/components/content-layout'
-import FormField from '@cloudscape-design/components/form-field'
-import Header from '@cloudscape-design/components/header'
-import KeyValuePairs from '@cloudscape-design/components/key-value-pairs'
-import Modal from '@cloudscape-design/components/modal'
-import Select from '@cloudscape-design/components/select'
-import SpaceBetween from '@cloudscape-design/components/space-between'
-import StatusIndicator from '@cloudscape-design/components/status-indicator'
-import Tiles from '@cloudscape-design/components/tiles'
-import Toggle from '@cloudscape-design/components/toggle'
 import { useState } from 'react'
 import InfoLink from '../components/common/InfoLink'
 import { TextSkeleton } from '../components/loading/PageSkeleton'
+import { Alert, Button, Checkbox, KeyValues, PageHeader, Panel, RadioCards, Select, Status } from '../components/ui/core'
+import { Modal } from '../components/ui/overlay'
 import { useAuthStatus, useDisconnect } from '../hooks/useGoogleDrive'
 import { useSyncSettings, useSyncStatus } from '../hooks/useSync'
 import { useNotify } from '../layouts/notifications'
@@ -32,34 +20,28 @@ function Connection() {
   const a = auth.data
 
   return (
-    <Container
-      header={
-        <Header
-          variant="h2"
-          actions={
-            <SpaceBetween direction="horizontal" size="xs">
-              {a && !a.can_trash && <Button href={authService.upgradeUrl}>Allow moving to Trash</Button>}
-              <Button onClick={() => setConfirming(true)}>Disconnect</Button>
-            </SpaceBetween>
-          }
-        >
-          Google Drive connection
-        </Header>
+    <Panel
+      title="Google Drive connection"
+      actions={
+        <>
+          {a && !a.can_trash && <Button href={authService.upgradeUrl}>Allow moving to Trash</Button>}
+          <Button onClick={() => setConfirming(true)}>Disconnect</Button>
+        </>
       }
     >
-      <KeyValuePairs
+      <KeyValues
         columns={2}
         items={[
-          { label: 'Connected account', value: a?.email ?? '—' },
+          { label: 'Connected account', value: <span className="font-semibold">{a?.email ?? '—'}</span> },
           {
             label: 'Permissions',
             value: (
-              <SpaceBetween size="xxs">
-                <StatusIndicator type="success">Read file details</StatusIndicator>
+              <div className="flex flex-col gap-1">
+                <Status type="success">Read file details</Status>
                 {a?.can_trash
-                  ? <StatusIndicator type="success">Move files to Trash and between folders</StatusIndicator>
-                  : <StatusIndicator type="stopped">Move files to Trash: not granted</StatusIndicator>}
-              </SpaceBetween>
+                  ? <Status type="success">Move files to Trash and between folders</Status>
+                  : <Status type="stopped">Move files to Trash: not granted</Status>}
+              </div>
             ),
           },
         ]}
@@ -69,56 +51,50 @@ function Connection() {
         onDismiss={() => setConfirming(false)}
         header="Disconnect Google Drive?"
         footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setConfirming(false)}>Keep connected</Button>
-              <Button variant="primary" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>Disconnect</Button>
-            </SpaceBetween>
-          </Box>
+          <>
+            <Button variant="link" onClick={() => setConfirming(false)} className="mr-2">Keep connected</Button>
+            <Button variant="primary" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>Disconnect</Button>
+          </>
         }
       >
-        <SpaceBetween size="s">
-          <Box variant="p">
+        <div className="flex flex-col gap-3">
+          <p>
             DriveClean&apos;s access is revoked at Google, and the stored sign-in tokens and file inventory are deleted
             from this computer. Your files in Drive are not touched.
-          </Box>
+          </p>
           {disconnect.isError && <Alert type="error">{errorMessage(disconnect.error)}</Alert>}
-        </SpaceBetween>
+        </div>
       </Modal>
-    </Container>
+    </Panel>
   )
 }
 
 function Display() {
   const prefs = usePreferences()
   return (
-    <Container header={<Header variant="h2" description="Saved in this browser.">Display</Header>}>
-      <SpaceBetween size="l">
-        <FormField label="Theme">
-          <Tiles
-            value={prefs.theme}
-            onChange={(e) => setPreferences({ theme: e.detail.value as ThemePref })}
-            columns={3}
-            items={[
-              { value: 'light', label: 'Light', description: 'The default' },
-              { value: 'dark', label: 'Dark' },
-              { value: 'system', label: 'Match system', description: "Follows your computer's setting" },
-            ]}
-          />
-        </FormField>
-        <FormField label="Density">
-          <Tiles
-            value={prefs.density}
-            onChange={(e) => setPreferences({ density: e.detail.value as DensityPref })}
-            columns={3}
-            items={[
-              { value: 'comfortable', label: 'Comfortable', description: 'The default' },
-              { value: 'compact', label: 'Compact', description: 'More rows on screen' },
-            ]}
-          />
-        </FormField>
-      </SpaceBetween>
-    </Container>
+    <Panel title="Display" description="Saved in this browser.">
+      <div className="flex flex-col gap-5">
+        <RadioCards<ThemePref>
+          label="Theme"
+          value={prefs.theme}
+          onChange={(theme) => setPreferences({ theme })}
+          options={[
+            { value: 'light', label: 'Light', description: 'The default' },
+            { value: 'dark', label: 'Dark' },
+            { value: 'system', label: 'Match system', description: "Follows your computer's setting" },
+          ]}
+        />
+        <RadioCards<DensityPref>
+          label="Table density"
+          value={prefs.density}
+          onChange={(density) => setPreferences({ density })}
+          options={[
+            { value: 'comfortable', label: 'Comfortable', description: 'The default' },
+            { value: 'compact', label: 'Compact', description: 'More rows on screen' },
+          ]}
+        />
+      </div>
+    </Panel>
   )
 }
 
@@ -138,46 +114,47 @@ function Sync() {
     })
 
   return (
-    <Container header={<Header variant="h2" description="Quick sync picks up only what changed in Drive since the last scan or sync.">Quick sync</Header>}>
+    <Panel title="Quick sync" description="Quick sync picks up only what changed in Drive since the last scan or sync.">
       {!s ? (
         <TextSkeleton lines={2} />
       ) : !s.available ? (
-        <StatusIndicator type="info">Available after your first full scan.</StatusIndicator>
+        <Status type="info">Available after your first full scan.</Status>
       ) : (
-        <SpaceBetween size="l">
-          <Toggle
+        <div className="flex flex-col gap-5">
+          <Checkbox
             checked={s.auto_sync_enabled}
             disabled={save.isPending}
-            onChange={(e) => update({ enabled: e.detail.checked, minutes: s.auto_sync_minutes })}
+            onChange={(enabled) => update({ enabled, minutes: s.auto_sync_minutes })}
             description={`Last synced ${formatDate(s.last_sync_at)}`}
           >
             Sync automatically while the app is running
-          </Toggle>
-          <FormField label="How often">
-            <div style={{ maxWidth: 220 }}>
-              <Select
-                disabled={!s.auto_sync_enabled || save.isPending}
-                selectedOption={INTERVALS.find((o) => o.value === String(s.auto_sync_minutes)) ?? null}
-                options={INTERVALS}
-                onChange={(e) => update({ enabled: true, minutes: Number(e.detail.selectedOption.value) })}
-              />
-            </div>
-          </FormField>
+          </Checkbox>
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">How often</span>
+            <Select
+              className="mt-1 block w-56"
+              disabled={!s.auto_sync_enabled || save.isPending}
+              value={INTERVALS.find((o) => o.value === String(s.auto_sync_minutes))?.value ?? null}
+              options={INTERVALS}
+              onChange={(v) => update({ enabled: true, minutes: Number(v) })}
+            />
+          </label>
           {s.last_error && <Alert type="warning">Last automatic sync failed: {s.last_error}</Alert>}
-        </SpaceBetween>
+        </div>
       )}
-    </Container>
+    </Panel>
   )
 }
 
 export default function Settings() {
   return (
-    <ContentLayout header={<Header variant="h1" info={<InfoLink />}>Settings</Header>}>
-      <SpaceBetween size="l">
+    <div className="max-w-4xl">
+      <PageHeader title="Settings" info={<InfoLink />} />
+      <div className="flex flex-col gap-6">
         <Connection />
         <Display />
         <Sync />
-      </SpaceBetween>
-    </ContentLayout>
+      </div>
+    </div>
   )
 }

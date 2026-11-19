@@ -1,17 +1,9 @@
-import { useCollection } from '@cloudscape-design/collection-hooks'
-import Alert from '@cloudscape-design/components/alert'
-import Box from '@cloudscape-design/components/box'
-import Container from '@cloudscape-design/components/container'
-import ContentLayout from '@cloudscape-design/components/content-layout'
-import Header from '@cloudscape-design/components/header'
-import LineChart from '@cloudscape-design/components/line-chart'
-import Pagination from '@cloudscape-design/components/pagination'
-import Table from '@cloudscape-design/components/table'
-import SpaceBetween from '@cloudscape-design/components/space-between'
-import { colorChartsPaletteCategorical1 } from '@cloudscape-design/design-tokens'
+import LineChart from '../components/charts/LineChart'
 import EmptyState from '../components/common/EmptyState'
 import InfoLink from '../components/common/InfoLink'
 import { ScanStatusIndicator } from '../components/common/status'
+import { Alert, PageHeader, Panel } from '../components/ui/core'
+import { Pagination, Table, useCollection } from '../components/ui/table'
 import { useScans } from '../hooks/useScan'
 import { errorMessage } from '../services/api'
 import type { Scan } from '../types/scan'
@@ -25,62 +17,44 @@ export default function ScanHistory() {
   const data = scans.data ?? []
   const done = data.filter((s) => s.status === 'completed' && s.completed_at).sort((a, b) => a.started_at.localeCompare(b.started_at))
   const spanDays = done.length > 1 ? (new Date(done[done.length - 1].started_at).getTime() - new Date(done[0].started_at).getTime()) / 86_400_000 : 0
-  const { items, collectionProps, paginationProps } = useCollection(data, {
-    pagination: { pageSize: 25 },
-    filtering: { empty: <EmptyState title="No scans yet">Start a scan from the dashboard to read your Drive.</EmptyState> },
-  })
+  const list = useCollection(data, { pageSize: 25 })
 
   return (
-    <ContentLayout
-      header={
-        <Header variant="h1" info={<InfoLink />} description="Every full scan of your Drive. Quick syncs between scans aren't listed.">
-          Scan history
-        </Header>
-      }
-    >
-      <SpaceBetween size="l">
+    <div>
+      <PageHeader title="Scan history" info={<InfoLink />} description="Every full scan of your Drive. Quick syncs between scans aren't listed." />
+      <div className="flex flex-col gap-6">
         {scans.isError && <Alert type="error">{errorMessage(scans.error)}</Alert>}
         {done.length > 1 && (
-          <Container header={<Header variant="h2" description="Files found by each completed scan.">Files over time</Header>}>
+          <Panel title="Files over time" description="Files found by each completed scan.">
             <LineChart
-              height={200}
-              hideFilter
-              hideLegend
-              xScaleType="time"
-              series={[{
-                title: 'Files found', type: 'line', color: colorChartsPaletteCategorical1,
-                data: done.map((s) => ({ x: new Date(s.started_at), y: s.processed_files })),
-                valueFormatter: (v) => v.toLocaleString(),
-              }]}
-              xTickFormatter={spanDays < 3 ? dateTime : shortDate}
-              yTickFormatter={(v) => v.toLocaleString()}
-              detailPopoverFooter={(x) => {
-                const s = done.find((d) => new Date(d.started_at).getTime() === (x as Date).getTime())
-                return s ? <Box fontSize="body-s" color="text-body-secondary">Took {formatDuration(s.started_at, s.completed_at)}</Box> : null
-              }}
+              points={done.map((s) => ({ x: new Date(s.started_at), y: s.processed_files, detail: `Took ${formatDuration(s.started_at, s.completed_at)}` }))}
+              formatX={spanDays < 3 ? dateTime : shortDate}
+              formatY={(v) => Math.round(v).toLocaleString()}
               ariaLabel="Files found by each completed scan"
-              xTitle="Scan date"
-              yTitle="Files"
             />
-          </Container>
+          </Panel>
         )}
-        <Table<Scan>
-          {...collectionProps}
-          trackBy="id"
-          items={items}
-          loading={scans.isPending}
-          loadingText="Loading scans"
-          header={<Header counter={scans.data ? `(${data.length})` : undefined}>Scans</Header>}
-          pagination={<Pagination {...paginationProps} ariaLabels={{ nextPageLabel: 'Next page', previousPageLabel: 'Previous page', pageLabel: (n) => `Page ${n}` }} />}
-          columnDefinitions={[
-            { id: 'started', header: 'Started', isRowHeader: true, cell: (s) => formatDate(s.started_at) },
-            { id: 'status', header: 'Status', cell: (s) => <ScanStatusIndicator status={s.status} /> },
-            { id: 'files', header: 'Files', cell: (s) => s.processed_files.toLocaleString() },
-            { id: 'duration', header: 'Duration', cell: (s) => formatDuration(s.started_at, s.completed_at) },
-            { id: 'error', header: 'Details', cell: (s) => (s.error_message ? <Box color="text-status-error" fontSize="body-s">{s.error_message}</Box> : '') },
-          ]}
-        />
-      </SpaceBetween>
-    </ContentLayout>
+        <Panel
+          title="Scans"
+          counter={scans.data ? `(${data.length})` : undefined}
+          actions={<Pagination page={list.page} pages={list.pages} onChange={list.setPage} />}
+          flush
+        >
+          <Table<Scan>
+            items={list.items}
+            trackBy={(s) => s.id}
+            loading={scans.isPending}
+            empty={<EmptyState title="No scans yet">Start a scan from the dashboard to read your Drive.</EmptyState>}
+            columns={[
+              { id: 'started', header: 'Started', cell: (s) => <span className="font-medium">{formatDate(s.started_at)}</span> },
+              { id: 'status', header: 'Status', cell: (s) => <ScanStatusIndicator status={s.status} /> },
+              { id: 'files', header: 'Files', align: 'right', cell: (s) => s.processed_files.toLocaleString() },
+              { id: 'duration', header: 'Duration', align: 'right', cell: (s) => formatDuration(s.started_at, s.completed_at) },
+              { id: 'error', header: 'Details', cell: (s) => (s.error_message ? <span className="text-xs text-rose-600">{s.error_message}</span> : '') },
+            ]}
+          />
+        </Panel>
+      </div>
+    </div>
   )
 }

@@ -1,4 +1,4 @@
-import Button from '@cloudscape-design/components/button'
+import { Button } from '../components/ui/core'
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCancelCleanup, useCleanupStatus } from '../hooks/useCleanup'

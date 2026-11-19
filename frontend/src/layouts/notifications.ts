@@ -1,9 +1,16 @@
-import type { FlashbarProps } from '@cloudscape-design/components/flashbar'
-import { createContext, useContext } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
+import type { AlertType } from '../components/ui/core'
 
-/** A notification shown in the page-top Flashbar. Notifications with the same id replace each other. */
-export type Notice = Omit<FlashbarProps.MessageDefinition, 'id' | 'onDismiss'> & {
+/** A notification shown at the top of the page. Notifications with the same id replace each other. */
+export interface Notice {
   id: string
+  type: AlertType
+  header?: ReactNode
+  content?: ReactNode
+  action?: ReactNode
+  /** Shows a spinner; such notices can't be dismissed by hand unless `dismissible` says so. */
+  loading?: boolean
+  dismissible?: boolean
   /** Remove automatically after this many milliseconds. */
   autoDismissMs?: number
 }

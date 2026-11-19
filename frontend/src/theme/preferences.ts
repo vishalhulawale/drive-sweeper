@@ -1,4 +1,3 @@
-import { applyDensity, applyMode, Density, Mode } from '@cloudscape-design/global-styles'
 import { useSyncExternalStore } from 'react'
 
 /** Display preferences: light theme and comfortable density by default. */
@@ -38,10 +37,10 @@ export function resolvedMode(p: Preferences = current): 'light' | 'dark' {
 
 function apply() {
   const mode = resolvedMode()
-  applyMode(mode === 'dark' ? Mode.Dark : Mode.Light)
-  applyDensity(current.density === 'compact' ? Density.Compact : Density.Comfortable)
-  document.documentElement.style.colorScheme = mode
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', mode === 'dark' ? '#161d26' : '#ffffff')
+  const root = document.documentElement
+  root.classList.toggle('dark', mode === 'dark')
+  root.dataset.density = current.density
+  root.style.colorScheme = mode
 }
 
 export function initPreferences() {

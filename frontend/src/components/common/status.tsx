@@ -1,7 +1,7 @@
-import StatusIndicator, { type StatusIndicatorProps } from '@cloudscape-design/components/status-indicator'
 import type { ScanStatus } from '../../types/scan'
+import { Status, type StatusType } from '../ui/core'
 
-const SCAN: Record<ScanStatus, [StatusIndicatorProps.Type, string]> = {
+const SCAN: Record<ScanStatus, [StatusType, string]> = {
   pending: ['pending', 'Starting'],
   running: ['in-progress', 'Scanning'],
   completed: ['success', 'Completed'],
@@ -12,10 +12,10 @@ const SCAN: Record<ScanStatus, [StatusIndicatorProps.Type, string]> = {
 
 export function ScanStatusIndicator({ status }: { status: ScanStatus }) {
   const [type, text] = SCAN[status]
-  return <StatusIndicator type={type}>{text}</StatusIndicator>
+  return <Status type={type}>{text}</Status>
 }
 
-const OPERATION: Record<string, [StatusIndicatorProps.Type, string]> = {
+const OPERATION: Record<string, [StatusType, string]> = {
   completed: ['success', 'Done'],
   failed: ['error', 'Failed'],
   skipped: ['warning', 'Skipped'],
@@ -29,5 +29,5 @@ const OPERATION: Record<string, [StatusIndicatorProps.Type, string]> = {
 /** Status of a cleanup or move operation, in words. */
 export function OperationStatusIndicator({ status }: { status: string }) {
   const [type, text] = OPERATION[status] ?? ['info', status.charAt(0).toUpperCase() + status.slice(1)]
-  return <StatusIndicator type={type}>{text}</StatusIndicator>
+  return <Status type={type}>{text}</Status>
 }

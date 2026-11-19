@@ -1,17 +1,9 @@
-import Alert from '@cloudscape-design/components/alert'
-import Button from '@cloudscape-design/components/button'
-import Container from '@cloudscape-design/components/container'
-import Header from '@cloudscape-design/components/header'
-import KeyValuePairs from '@cloudscape-design/components/key-value-pairs'
-import SpaceBetween from '@cloudscape-design/components/space-between'
-import StatusIndicator from '@cloudscape-design/components/status-indicator'
 import { useRunSync, useSyncStatus } from '../../hooks/useSync'
 import { useNotify } from '../../layouts/notifications'
 import { errorMessage } from '../../services/api'
 import { formatDate, intervalLabel } from '../../utils/format'
-import { AppLink } from '../common/RouterLink'
 import { TextSkeleton } from '../loading/PageSkeleton'
-
+import { Alert, AppLink, Button, KeyValues, Panel, Status } from '../ui/core'
 
 /** Quick sync status and "Sync now"; its settings live on the Settings page. */
 export default function SyncSummary({ scanning }: { scanning: boolean }) {
@@ -33,39 +25,33 @@ export default function SyncSummary({ scanning }: { scanning: boolean }) {
     })
 
   return (
-    <Container
-      header={
-        <Header
-          variant="h2"
-          description="Picks up only what changed in Drive, usually in seconds."
-          actions={<Button onClick={run} loading={sync.isPending} disabled={!s?.available || scanning}>Sync now</Button>}
-        >
-          Quick sync
-        </Header>
-      }
+    <Panel
+      title="Quick sync"
+      description="Picks up only what changed in Drive, usually in seconds."
+      actions={<Button onClick={run} loading={sync.isPending} disabled={!s?.available || scanning}>Sync now</Button>}
     >
       {!s ? (
         <TextSkeleton lines={2} />
       ) : !s.available ? (
-        <StatusIndicator type="info">Available after your first full scan.</StatusIndicator>
+        <Status type="info">Available after your first full scan.</Status>
       ) : (
-        <SpaceBetween size="m">
-          <KeyValuePairs
+        <div className="flex flex-col gap-4">
+          <KeyValues
             columns={2}
             items={[
               { label: 'Last synced', value: formatDate(s.last_sync_at) },
               {
                 label: 'Automatic sync',
+                info: <AppLink to="/settings">Change</AppLink>,
                 value: s.auto_sync_enabled
-                  ? <StatusIndicator type="success">Every {intervalLabel(s.auto_sync_minutes)}</StatusIndicator>
-                  : <StatusIndicator type="stopped">Off</StatusIndicator>,
-                info: <AppLink href="/settings" variant="info">Change</AppLink>,
+                  ? <Status type="success">Every {intervalLabel(s.auto_sync_minutes)}</Status>
+                  : <Status type="stopped">Off</Status>,
               },
             ]}
           />
           {s.last_error && <Alert type="warning">Last automatic sync failed: {s.last_error}</Alert>}
-        </SpaceBetween>
+        </div>
       )}
-    </Container>
+    </Panel>
   )
 }

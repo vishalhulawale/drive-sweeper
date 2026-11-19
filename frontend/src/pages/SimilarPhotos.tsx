@@ -1,25 +1,16 @@
-import Alert from '@cloudscape-design/components/alert'
-import Box from '@cloudscape-design/components/box'
-import Button from '@cloudscape-design/components/button'
-import ButtonDropdown from '@cloudscape-design/components/button-dropdown'
-import Container from '@cloudscape-design/components/container'
-import ContentLayout from '@cloudscape-design/components/content-layout'
-import Header from '@cloudscape-design/components/header'
-import KeyValuePairs from '@cloudscape-design/components/key-value-pairs'
-import Modal from '@cloudscape-design/components/modal'
-import Pagination from '@cloudscape-design/components/pagination'
-import ProgressBar from '@cloudscape-design/components/progress-bar'
-import SpaceBetween from '@cloudscape-design/components/space-between'
 import { useQueryClient } from '@tanstack/react-query'
+import { Keyboard } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import EmptyState from '../components/common/EmptyState'
 import InfoLink from '../components/common/InfoLink'
-import { AppButtonLink } from '../components/common/RouterLink'
 import { ContainerSkeleton } from '../components/loading/PageSkeleton'
 import CompareModal from '../components/review/CompareModal'
 import PhotoTile from '../components/review/PhotoTile'
 import { useBulkApply } from '../components/review/useBulkApply'
 import { useReviewShortcuts } from '../components/review/useReviewShortcuts'
+import { Alert, Button, cx, KeyValues, PageHeader, Panel, ProgressBar } from '../components/ui/core'
+import { Dropdown, Modal } from '../components/ui/overlay'
+import { Pagination } from '../components/ui/table'
 import { useCleanupPlan } from '../hooks/useCleanup'
 import { useDuplicateGroups, usePrefetchGroups, useRestoreSelections, useSelectAction } from '../hooks/useDuplicates'
 import { useCancelNear, useNearStatus, useRegroupNear, useStartNear } from '../hooks/useNear'
@@ -46,9 +37,9 @@ function Analysis() {
   const actions = s?.running ? (
     <Button onClick={() => cancel.mutate()} loading={cancel.isPending}>Stop</Button>
   ) : (
-    <SpaceBetween direction="horizontal" size="xs">
-      <ButtonDropdown
-        variant="icon"
+    <>
+      <Dropdown
+        icon
         ariaLabel="More analysis actions"
         disabled={!s?.hashed}
         items={[{ id: 'regroup', text: 'Group again with current settings', description: 'Rebuilds groups from photos already analysed' }]}
@@ -59,12 +50,12 @@ function Analysis() {
         }
       />
       <Button onClick={() => start.mutate()} loading={start.isPending} disabled={!s || s.eligible === 0}>{startLabel}</Button>
-    </SpaceBetween>
+    </>
   )
 
   return (
-    <Container header={<Header variant="h2" actions={actions} info={<InfoLink />}>Analysis</Header>}>
-      <SpaceBetween size="m">
+    <Panel title="Analysis" info={<InfoLink />} actions={actions}>
+      <div className="flex flex-col gap-4">
         {err != null && <Alert type="error">{errorMessage(err)}</Alert>}
         {s?.last_error && !s.running && <Alert type="warning">Last analysis stopped: {s.last_error}</Alert>}
         {s?.running ? (
@@ -72,21 +63,21 @@ function Analysis() {
             label="Analysing photos"
             value={s.eligible ? (done / s.eligible) * 100 : 0}
             description={`${done.toLocaleString()} of ${s.eligible.toLocaleString()} photos analysed`}
-            additionalInfo="Reads a small preview of each photo from Google, never the original."
+            info="Reads a small preview of each photo from Google, never the original."
           />
         ) : (
-          <KeyValuePairs
+          <KeyValues
             columns={4}
             items={[
               { label: 'Photos analysed', value: s ? `${done.toLocaleString()} of ${s.eligible.toLocaleString()}` : '—' },
               { label: "Couldn't be read", value: s ? s.unhashable.toLocaleString() : '—' },
               { label: 'Groups found', value: s ? s.groups.toLocaleString() : '—' },
-              { label: 'You can free', value: s ? `Up to ${formatBytes(s.potential_savings)}` : '—' },
+              { label: 'You can free', value: s ? <span className="font-semibold">Up to {formatBytes(s.potential_savings)}</span> : '—' },
             ]}
           />
         )}
-      </SpaceBetween>
-    </Container>
+      </div>
+    </Panel>
   )
 }
 
@@ -113,31 +104,34 @@ function Group({
 
   return (
     <div ref={ref} onFocusCapture={onFocus}>
-      <Container
-        header={
-          <Header
-            variant="h2"
-            counter={marked ? `(${marked} marked for Trash)` : undefined}
-            description={`Save up to ${formatBytes(group.potential_savings)}`}
-            actions={
-              <SpaceBetween direction="horizontal" size="xs">
-                <Button onClick={onCompare}>Compare</Button>
-                <Button onClick={onKeepAll}>Keep all</Button>
-                <Button onClick={onApply} loading={applying}>Keep only the suggested copy</Button>
-              </SpaceBetween>
-            }
-          >
-            {group.file_count} similar photos
-          </Header>
+      <Panel
+        title={`${group.file_count} similar photos`}
+        counter={marked ? `(${marked} marked for Trash)` : undefined}
+        description={`Save up to ${formatBytes(group.potential_savings)}`}
+        actions={
+          <>
+            <Button onClick={onCompare}>Compare</Button>
+            <Button onClick={onKeepAll}>Keep all</Button>
+            <Button onClick={onApply} loading={applying}>Keep only the suggested copy</Button>
+          </>
         }
       >
         <div className="dc-photo-grid">
           {group.files.map((e) => <PhotoTile key={e.entry_id} entry={e} />)}
         </div>
-      </Container>
+      </Panel>
     </div>
   )
 }
+
+const SHORTCUTS: [string, string][] = [
+  ['J / K', 'Next / previous group'],
+  ['1 / 2', 'Keep / trash the focused photo'],
+  ['A', 'Keep only the suggested copy in this group'],
+  ['C', 'Compare this group side by side'],
+  ['Tab', 'Move between photos'],
+  ['?', 'Show these shortcuts'],
+]
 
 export default function SimilarPhotos() {
   const [page, setPageState] = useState(1)
@@ -194,60 +188,51 @@ export default function SimilarPhotos() {
   }), [moveFocus, select, items, focus, bulk])
   useReviewShortcuts(comparing === null && !confirmAll && !shortcutsOpen, shortcuts)
 
+  const pager = (top: boolean) => total > 0 && pages > 1 && (
+    <div className="flex justify-end">
+      <Pagination page={page} pages={pages} onChange={(p) => { setPage(p); if (!top) window.scrollTo({ top: 0 }) }} />
+    </div>
+  )
+
   return (
-    <ContentLayout
-      header={
-        <Header
-          variant="h1"
-          counter={s ? `(${s.groups.toLocaleString()})` : undefined}
-          info={<InfoLink />}
-          description="Photos that look the same but aren't identical files: resized, re-saved or lightly edited copies. Look at each group before you trash anything."
-          actions={
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button iconName="keyboard" onClick={() => setShortcutsOpen(true)} ariaLabel="Keyboard shortcuts" variant="icon" />
-              <ButtonDropdown
-                loading={bulk.isPending}
-                disabled={!items.length}
-                items={[
-                  { id: 'page', text: `To this page (${items.length} groups)` },
-                  { id: 'all', text: `To all ${total.toLocaleString()} groups…` },
-                ]}
-                onItemClick={({ detail }) => (detail.id === 'all' ? setConfirmAll(true) : bulk.run(items))}
-              >
-                Apply suggestions
-              </ButtonDropdown>
-              <AppButtonLink href="/cleanup" variant="primary" disabled={!marked}>
-                {marked ? `Review ${marked.toLocaleString()} in Cleanup` : 'Review in Cleanup'}
-              </AppButtonLink>
-            </SpaceBetween>
-          }
-        >
-          Similar photos
-        </Header>
-      }
-    >
-      <SpaceBetween size="l">
+    <div>
+      <PageHeader
+        title="Similar photos"
+        counter={s ? `(${s.groups.toLocaleString()})` : undefined}
+        info={<InfoLink />}
+        description="Photos that look the same but aren't identical files: resized, re-saved or lightly edited copies. Look at each group before you trash anything."
+        actions={
+          <>
+            <Button variant="icon" ariaLabel="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShortcutsOpen(true)}><Keyboard size={18} /></Button>
+            <Dropdown
+              label="Apply suggestions"
+              loading={bulk.isPending}
+              disabled={!items.length}
+              items={[
+                { id: 'page', text: `To this page (${items.length} groups)` },
+                { id: 'all', text: `To all ${total.toLocaleString()} groups…` },
+              ]}
+              onItemClick={(id) => (id === 'all' ? setConfirmAll(true) : bulk.run(items))}
+            />
+            <Button to="/cleanup" variant="primary" disabled={!marked}>
+              {marked ? `Review ${marked.toLocaleString()} in Cleanup` : 'Review in Cleanup'}
+            </Button>
+          </>
+        }
+      />
+      <div className="flex flex-col gap-6">
         <Analysis />
         {groups.isError && <Alert type="error">{errorMessage(groups.error)}</Alert>}
         {groups.isPending && <><ContainerSkeleton lines={4} /><ContainerSkeleton lines={4} /></>}
         {groups.data && total === 0 && (
-          <Container>
+          <Panel>
             <EmptyState title={s && s.pending > 0 ? 'Analyse your photos to find similar ones' : 'No similar photos found'}>
               {s && s.pending > 0 ? 'Start the analysis above. It can be stopped and resumed.' : 'Every photo looks different from the others.'}
             </EmptyState>
-          </Container>
+          </Panel>
         )}
-        {total > 0 && (
-          <Box float="right">
-            <Pagination
-              currentPageIndex={page}
-              pagesCount={pages}
-              onChange={(e) => setPage(e.detail.currentPageIndex)}
-              ariaLabels={{ nextPageLabel: 'Next page', previousPageLabel: 'Previous page', pageLabel: (n) => `Page ${n}` }}
-            />
-          </Box>
-        )}
-        <div style={{ display: 'grid', gap: 20, opacity: groups.isPlaceholderData ? 0.6 : 1 }}>
+        {pager(true)}
+        <div className={cx('grid gap-5 transition-opacity', groups.isPlaceholderData && 'opacity-60')}>
           {items.map((g, i) => (
             <Group
               key={g.id}
@@ -261,17 +246,8 @@ export default function SimilarPhotos() {
             />
           ))}
         </div>
-        {total > 0 && (
-          <Box float="right">
-            <Pagination
-              currentPageIndex={page}
-              pagesCount={pages}
-              onChange={(e) => { setPage(e.detail.currentPageIndex); window.scrollTo({ top: 0 }) }}
-              ariaLabels={{ nextPageLabel: 'Next page', previousPageLabel: 'Previous page', pageLabel: (n) => `Page ${n}` }}
-            />
-          </Box>
-        )}
-      </SpaceBetween>
+        {pager(false)}
+      </div>
 
       <CompareModal
         key={comparing ?? 'none'}
@@ -286,12 +262,10 @@ export default function SimilarPhotos() {
         onDismiss={() => setConfirmAll(false)}
         header={`Apply suggestions to all ${total.toLocaleString()} groups?`}
         footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setConfirmAll(false)}>Cancel</Button>
-              <Button variant="primary" onClick={() => { setConfirmAll(false); bulk.run('all', total) }}>Apply to all groups</Button>
-            </SpaceBetween>
-          </Box>
+          <>
+            <Button variant="link" className="mr-2" onClick={() => setConfirmAll(false)}>Cancel</Button>
+            <Button variant="primary" onClick={() => { setConfirmAll(false); bulk.run('all', total) }}>Apply to all groups</Button>
+          </>
         }
       >
         In every group the largest copy is kept and the others are marked for Trash, replacing choices you made
@@ -303,20 +277,22 @@ export default function SimilarPhotos() {
         visible={shortcutsOpen}
         onDismiss={() => setShortcutsOpen(false)}
         header="Keyboard shortcuts"
-        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button variant="link" onClick={() => { setShortcutsOpen(false); openHelp() }}>Open help</Button><Button variant="primary" onClick={() => setShortcutsOpen(false)}>Close</Button></SpaceBetween></Box>}
+        footer={
+          <>
+            <Button variant="link" className="mr-2" onClick={() => { setShortcutsOpen(false); openHelp() }}>Open help</Button>
+            <Button variant="primary" onClick={() => setShortcutsOpen(false)}>Close</Button>
+          </>
+        }
       >
-        <KeyValuePairs
-          columns={2}
-          items={[
-            { label: 'J / K', value: 'Next / previous group' },
-            { label: '1 / 2', value: 'Keep / trash the focused photo' },
-            { label: 'A', value: 'Keep only the suggested copy in this group' },
-            { label: 'C', value: 'Compare this group side by side' },
-            { label: 'Tab', value: 'Move between photos' },
-            { label: '?', value: 'Show these shortcuts' },
-          ]}
-        />
+        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2">
+          {SHORTCUTS.map(([k, v]) => (
+            <div key={k} className="contents">
+              <dt><kbd className="border border-line bg-[#fafafa] px-1.5 py-0.5 font-mono text-xs dark:border-slate-700 dark:bg-slate-800">{k}</kbd></dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
       </Modal>
-    </ContentLayout>
+    </div>
   )
 }

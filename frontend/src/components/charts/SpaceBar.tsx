@@ -1,7 +1,5 @@
-import Box from '@cloudscape-design/components/box'
-import { colorBorderDividerDefault, colorBorderItemFocused } from '@cloudscape-design/design-tokens'
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { formatBytes } from '../../utils/format'
 
 export interface SpacePart {
@@ -13,11 +11,10 @@ export interface SpacePart {
 }
 
 /**
- * A thin segmented bar: the whole Drive, with the parts that can be freed coloured in.
- * Each part is a focusable link; hovering a part or its legend row highlights both.
+ * A segmented bar: the whole Drive, with the parts that can be freed coloured in.
+ * Each part links to its page; hovering a part or its legend row highlights both.
  */
 export default function SpaceBar({ parts, total }: { parts: SpacePart[]; total: number }) {
-  const navigate = useNavigate()
   const [active, setActive] = useState<string | null>(null)
   // Grow from zero once on first render (the app's one automatic animation; off for reduced motion).
   const [grown, setGrown] = useState(false)
@@ -35,50 +32,39 @@ export default function SpaceBar({ parts, total }: { parts: SpacePart[]; total: 
       <div
         role="img"
         aria-label={`Of ${formatBytes(total)} in your Drive: ${visible.map(describe).join('; ') || 'nothing to free'}.`}
-        style={{
-          display: 'flex', gap: 2, height: 8, borderRadius: 4, overflow: 'hidden',
-        }}
+        className="flex h-3 gap-0.5 overflow-hidden"
       >
         {visible.map((p) => (
-          <div
+          <Link
             key={p.key}
+            to={p.href}
+            tabIndex={-1}
             title={describe(p)}
             onMouseEnter={() => setActive(p.key)}
             onMouseLeave={() => setActive(null)}
-            onClick={() => navigate(p.href)}
-            className="dc-grow"
-            style={{
-              width: grown ? `max(6px, ${share(p.bytes)}%)` : 0,
-              flexShrink: 0, background: p.color, cursor: 'pointer',
-              opacity: active && active !== p.key ? 0.35 : 1,
-            }}
+            className="dc-grow shrink-0"
+            style={{ width: grown ? `max(6px, ${share(p.bytes)}%)` : 0, background: p.color, opacity: active && active !== p.key ? 0.35 : 1 }}
           />
         ))}
-        {/* The rest of the Drive; the 2px gaps show the surface between parts. */}
-        <div style={{ flex: 1, minWidth: 6, background: colorBorderDividerDefault }} />
+        {/* The rest of the Drive. */}
+        <div className="min-w-1.5 flex-1 bg-slate-100 dark:bg-slate-800" />
       </div>
-      <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'flex', flexWrap: 'wrap', gap: '8px 24px' }}>
+      <ul className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
         {parts.map((p) => (
           <li key={p.key}>
-            <a
-              href={p.href}
-              onClick={(e) => { e.preventDefault(); navigate(p.href) }}
+            <Link
+              to={p.href}
               onMouseEnter={() => setActive(p.key)}
               onMouseLeave={() => setActive(null)}
               onFocus={() => setActive(p.key)}
               onBlur={() => setActive(null)}
-              className="dc-legend-link"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none', color: 'inherit',
-                borderRadius: 4, padding: '2px 4px', margin: '-2px -4px',
-                outlineColor: colorBorderItemFocused,
-                opacity: active && active !== p.key ? 0.55 : 1,
-              }}
+              className="group inline-flex items-center gap-2"
+              style={{ opacity: active && active !== p.key ? 0.55 : 1 }}
             >
-              <span aria-hidden style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
-              <Box variant="span" color="text-body-secondary">{p.label}</Box>
-              <Box variant="span" fontWeight="bold">{formatBytes(p.bytes)}</Box>
-            </a>
+              <span aria-hidden className="h-2.5 w-2.5 shrink-0" style={{ background: p.color }} />
+              <span className="text-slate-600 group-hover:underline dark:text-slate-400">{p.label}</span>
+              <span className="font-semibold" data-numeric>{formatBytes(p.bytes)}</span>
+            </Link>
           </li>
         ))}
       </ul>

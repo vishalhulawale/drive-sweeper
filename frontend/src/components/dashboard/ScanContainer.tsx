@@ -1,18 +1,11 @@
-import Alert from '@cloudscape-design/components/alert'
-import Box from '@cloudscape-design/components/box'
-import Button from '@cloudscape-design/components/button'
-import Container from '@cloudscape-design/components/container'
-import Header from '@cloudscape-design/components/header'
-import KeyValuePairs from '@cloudscape-design/components/key-value-pairs'
-import ProgressBar from '@cloudscape-design/components/progress-bar'
-import SpaceBetween from '@cloudscape-design/components/space-between'
 import { useCancelScan, useResumeScan, useScans, useStartScan } from '../../hooks/useScan'
 import { errorMessage } from '../../services/api'
 import { isActive, isResumable } from '../../types/scan'
 import { formatDate, formatDuration } from '../../utils/format'
-import { TextSkeleton } from '../loading/PageSkeleton'
 import EmptyState from '../common/EmptyState'
 import { ScanStatusIndicator } from '../common/status'
+import { TextSkeleton } from '../loading/PageSkeleton'
+import { Alert, Button, KeyValues, Panel, ProgressBar, Secondary } from '../ui/core'
 
 export default function ScanContainer() {
   const scans = useScans()
@@ -32,36 +25,32 @@ export default function ScanContainer() {
   ) : undefined
 
   return (
-    <Container header={<Header variant="h2" actions={actions} description="Reads file details only; nothing is downloaded or changed.">Drive scan</Header>}>
-      <SpaceBetween size="m">
+    <Panel title="Drive scan" actions={actions} description="Reads file details only; nothing is downloaded or changed.">
+      <div className="flex flex-col gap-4">
         {scans.isError && <Alert type="error">{errorMessage(scans.error)}</Alert>}
         {mutationError && <Alert type="error">{errorMessage(mutationError)}</Alert>}
         {scans.isPending && <TextSkeleton lines={2} />}
-        {scans.data && !latest && (
-          <EmptyState title="No scans yet">Scan your Drive to find duplicates and similar photos.</EmptyState>
-        )}
+        {scans.data && !latest && <EmptyState title="No scans yet">Scan your Drive to find duplicates and similar photos.</EmptyState>}
         {latest && active && (
           <ProgressBar
             label="Scanning your Drive"
             value={latest.total_files ? (latest.processed_files / latest.total_files) * 100 : undefined}
             description={`${latest.processed_files.toLocaleString()} files read so far`}
-            additionalInfo={`Started ${formatDate(latest.started_at)}`}
+            info={`Started ${formatDate(latest.started_at)}`}
           />
         )}
         {latest && !active && (
-          <KeyValuePairs
+          <KeyValues
             columns={3}
             items={[
               { label: 'Status', value: <ScanStatusIndicator status={latest.status} /> },
-              { label: 'Files read', value: latest.processed_files.toLocaleString() },
-              { label: 'Started', value: <>{formatDate(latest.started_at)} <Box variant="span" color="text-body-secondary">({formatDuration(latest.started_at, latest.completed_at)})</Box></> },
+              { label: 'Files read', value: <span data-numeric>{latest.processed_files.toLocaleString()}</span> },
+              { label: 'Started', value: <>{formatDate(latest.started_at)} <Secondary>({formatDuration(latest.started_at, latest.completed_at)})</Secondary></> },
             ]}
           />
         )}
-        {latest?.error_message && (
-          <Alert type={latest.status === 'failed' ? 'error' : 'warning'}>{latest.error_message}</Alert>
-        )}
-      </SpaceBetween>
-    </Container>
+        {latest?.error_message && <Alert type={latest.status === 'failed' ? 'error' : 'warning'}>{latest.error_message}</Alert>}
+      </div>
+    </Panel>
   )
 }

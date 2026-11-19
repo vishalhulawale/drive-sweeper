@@ -1,22 +1,14 @@
-import Alert from '@cloudscape-design/components/alert'
-import Box from '@cloudscape-design/components/box'
-import Button from '@cloudscape-design/components/button'
-import ButtonDropdown from '@cloudscape-design/components/button-dropdown'
-import ContentLayout from '@cloudscape-design/components/content-layout'
-import Header from '@cloudscape-design/components/header'
-import Link from '@cloudscape-design/components/link'
-import Modal from '@cloudscape-design/components/modal'
-import Pagination from '@cloudscape-design/components/pagination'
-import SpaceBetween from '@cloudscape-design/components/space-between'
-import Table, { type TableProps } from '@cloudscape-design/components/table'
 import { useEffect, useMemo, useState } from 'react'
 import EmptyState from '../components/common/EmptyState'
 import InfoLink from '../components/common/InfoLink'
-import { AppButtonLink } from '../components/common/RouterLink'
 import DecisionControl from '../components/review/DecisionControl'
 import { useBulkApply } from '../components/review/useBulkApply'
+import { Alert, Button, ExternalAnchor, PageHeader, Panel, Secondary } from '../components/ui/core'
+import { Dropdown, Modal } from '../components/ui/overlay'
+import { Pagination, Table, Toolbar, type Column } from '../components/ui/table'
 import { useCleanupPlan } from '../hooks/useCleanup'
 import { useDetectDuplicates, useDuplicateGroups, useDuplicateSummary, usePrefetchGroups } from '../hooks/useDuplicates'
+import { useSyncOnOpen } from '../hooks/useSync'
 import { useNotify } from '../layouts/notifications'
 import { errorMessage } from '../services/api'
 import type { DuplicateEntry, DuplicateGroup, DuplicateSort } from '../types/duplicate'
@@ -37,32 +29,29 @@ function groupState(g: DuplicateGroup) {
   return trash ? `${trash} of ${g.files.length} marked for Trash` : 'Keeping all'
 }
 
-const COLUMNS: TableProps.ColumnDefinition<Row>[] = [
+const COLUMNS: Column<Row>[] = [
   {
-    id: 'name', header: 'Name', isRowHeader: true, width: 300,
+    id: 'name', header: 'Name', className: 'min-w-64',
     cell: (r) => r.kind === 'group'
-      ? <Box variant="span" fontWeight="bold">{r.group.files[0]?.file.name ?? 'Group'}</Box>
-      : <Link href={r.entry.file.web_view_link ?? undefined} external externalIconAriaLabel="(opens in Google Drive)">{r.entry.file.name}</Link>,
+      ? <span className="font-semibold">{r.group.files[0]?.file.name ?? 'Group'}</span>
+      : <ExternalAnchor href={r.entry.file.web_view_link}>{r.entry.file.name}</ExternalAnchor>,
   },
+  { id: 'count', header: 'Copies', sortField: 'count', align: 'right', cell: (r) => (r.kind === 'group' ? r.group.file_count : null) },
   {
-    id: 'count', header: 'Copies', sortingField: 'count',
-    cell: (r) => (r.kind === 'group' ? r.group.file_count : null),
-  },
-  {
-    id: 'size', header: 'Size', sortingField: 'size',
+    id: 'size', header: 'Size', sortField: 'size', align: 'right',
     cell: (r) => (r.kind === 'group' ? `${formatBytes(r.group.file_size)} each` : formatBytes(r.entry.file.size)),
   },
   {
-    id: 'savings', header: 'You can free', sortingField: 'savings',
-    cell: (r) => (r.kind === 'group' ? formatBytes(r.group.potential_savings) : null),
+    id: 'savings', header: 'You can free', sortField: 'savings', align: 'right',
+    cell: (r) => (r.kind === 'group' ? <span className="font-semibold">{formatBytes(r.group.potential_savings)}</span> : null),
   },
   { id: 'created', header: 'Created', cell: (r) => (r.kind === 'file' ? formatDate(r.entry.file.created_time) : null) },
   { id: 'modified', header: 'Modified', cell: (r) => (r.kind === 'file' ? formatDate(r.entry.file.modified_time) : null) },
   {
-    id: 'decision', header: 'Decision', minWidth: 240,
+    id: 'decision', header: 'Decision', className: 'min-w-44',
     cell: (r) => r.kind === 'file'
       ? <DecisionControl entry={r.entry} name={r.entry.file.name} />
-      : <Box color="text-body-secondary" fontSize="body-s">{groupState(r.group)}</Box>,
+      : <Secondary className="text-xs">{groupState(r.group)}</Secondary>,
   },
 ]
 
@@ -70,6 +59,7 @@ export default function Duplicates() {
   const [sort, setSortState] = useState<DuplicateSort>('savings')
   const [page, setPageState] = useState(1)
   const [selected, setSelected] = useState<Row[]>([])
+  useSyncOnOpen() // catch files deleted or changed directly in Drive
   // Selection belongs to the page it was made on.
   const setPage = (p: number) => { setPageState(p); setSelected([]) }
   const setSort = (s: DuplicateSort) => { setSortState(s); setPageState(1); setSelected([]) }
@@ -86,7 +76,6 @@ export default function Duplicates() {
   const total = groups.data?.total ?? 0
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const items = useMemo(() => (groups.data?.items ?? []).map(groupRow), [groups.data])
-  const expanded = items.filter((r) => !collapsed.has(r.group.id))
   const selectedGroups = selected.filter((r) => r.kind === 'group').map((r) => r.group)
 
   useEffect(() => {
@@ -106,132 +95,100 @@ export default function Duplicates() {
   const s = summary.data
 
   return (
-    <ContentLayout
-      header={
-        <Header
-          variant="h1"
-          counter={s ? `(${s.groups.toLocaleString()})` : undefined}
-          info={<InfoLink />}
-          description={
-            s
-              ? `Exact copies of the same file: ${s.duplicate_files.toLocaleString()} files, up to ${formatBytes(s.potential_savings)} you can free.`
-              : 'Exact copies of the same file.'
-          }
-          actions={
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button onClick={runDetect} loading={detect.isPending}>Find duplicates</Button>
-              <AppButtonLink href="/cleanup" variant="primary" disabled={!marked}>
-                {marked ? `Review ${marked.toLocaleString()} in Cleanup` : 'Review in Cleanup'}
-              </AppButtonLink>
-            </SpaceBetween>
-          }
-        >
-          Duplicates
-        </Header>
-      }
-    >
-      <SpaceBetween size="l">
+    <div>
+      <PageHeader
+        title="Duplicates"
+        counter={s ? `(${s.groups.toLocaleString()})` : undefined}
+        info={<InfoLink />}
+        description={
+          s
+            ? `Exact copies of the same file: ${s.duplicate_files.toLocaleString()} files, up to ${formatBytes(s.potential_savings)} you can free.`
+            : 'Exact copies of the same file.'
+        }
+        actions={
+          <>
+            <Button onClick={runDetect} loading={detect.isPending}>Find duplicates</Button>
+            <Button to="/cleanup" variant="primary" disabled={!marked}>
+              {marked ? `Review ${marked.toLocaleString()} in Cleanup` : 'Review in Cleanup'}
+            </Button>
+          </>
+        }
+      />
+      <div className="flex flex-col gap-4">
         {groups.isError && <Alert type="error">{errorMessage(groups.error)}</Alert>}
-        <Table<Row>
-          variant="full-page"
-          trackBy="id"
-          items={items}
-          columnDefinitions={COLUMNS}
-          stickyColumns={{ first: 0, last: 1 }}
-          resizableColumns
-          loading={groups.isPending}
-          loadingText="Loading duplicate groups"
-          selectionType="multi"
-          selectedItems={selected}
-          onSelectionChange={(e) => setSelected(e.detail.selectedItems.filter((r) => r.kind === 'group'))}
-          isItemDisabled={(r) => r.kind === 'file'}
-          expandableRows={{
-            getItemChildren: (r) => (r.kind === 'group' ? fileRows(r.group) : []),
-            isItemExpandable: (r) => r.kind === 'group',
-            expandedItems: expanded,
-            onExpandableItemToggle: ({ detail }) => {
-              if (detail.item.kind !== 'group') return
-              const id = detail.item.group.id
-              setCollapsed((c) => {
-                const next = new Set(c)
-                if (detail.expanded) next.delete(id)
-                else next.add(id)
-                return next
-              })
-            },
-          }}
-          sortingColumn={{ sortingField: sort }}
-          sortingDescending
-          onSortingChange={(e) => {
-            const f = e.detail.sortingColumn.sortingField as DuplicateSort | undefined
-            if (f) setSort(f)
-          }}
-          ariaLabels={{
-            selectionGroupLabel: 'Group selection',
-            itemSelectionLabel: (_, r) => (r.kind === 'group' ? `Select group ${r.group.files[0]?.file.name ?? ''}` : ''),
-            allItemsSelectionLabel: () => 'Select all groups on this page',
-          }}
-          header={
-            <Header
-              variant="awsui-h1-sticky"
-              counter={selectedGroups.length ? `(${selectedGroups.length} selected)` : undefined}
-              actions={
-                <ButtonDropdown
-                  variant="normal"
-                  loading={bulk.isPending}
-                  disabled={!items.length}
-                  items={[
-                    { id: 'selected', text: `To selected groups (${selectedGroups.length})`, disabled: !selectedGroups.length },
-                    { id: 'page', text: `To this page (${items.length} groups)` },
-                    { id: 'all', text: `To all ${total.toLocaleString()} groups…` },
-                  ]}
-                  onItemClick={({ detail }) => {
-                    if (detail.id === 'all') setConfirmAll(true)
-                    else bulk.run(detail.id === 'selected' ? selectedGroups : items.map((r) => r.group))
-                  }}
-                >
-                  Apply suggestions
-                </ButtonDropdown>
-              }
-              description="The oldest copy in each group is suggested to keep. Applying suggestions marks the other copies for Trash; nothing changes in Drive until you use Cleanup."
-            >
-              Groups
-            </Header>
-          }
-          pagination={
-            <Pagination
-              currentPageIndex={page}
-              pagesCount={pages}
-              onChange={(e) => setPage(e.detail.currentPageIndex)}
-              ariaLabels={{ nextPageLabel: 'Next page', previousPageLabel: 'Previous page', pageLabel: (n) => `Page ${n}` }}
+        <Panel
+          title="Groups"
+          counter={selectedGroups.length ? `(${selectedGroups.length} selected)` : undefined}
+          description="The oldest copy in each group is suggested to keep. Applying suggestions marks the other copies for Trash; nothing changes in Drive until you use Cleanup."
+          actions={
+            <Dropdown
+              label="Apply suggestions"
+              loading={bulk.isPending}
+              disabled={!items.length}
+              items={[
+                { id: 'selected', text: `To selected groups (${selectedGroups.length})`, disabled: !selectedGroups.length },
+                { id: 'page', text: `To this page (${items.length} groups)` },
+                { id: 'all', text: `To all ${total.toLocaleString()} groups…` },
+              ]}
+              onItemClick={(id) => {
+                if (id === 'all') setConfirmAll(true)
+                else bulk.run(id === 'selected' ? selectedGroups : items.map((r) => r.group))
+              }}
             />
           }
-          empty={
-            <EmptyState
-              title="No duplicates found"
-              action={<Button onClick={runDetect} loading={detect.isPending}>Find duplicates</Button>}
-            >
-              Run a scan first, then find duplicates. Google Docs, Sheets and Slides are never matched.
-            </EmptyState>
-          }
-        />
-      </SpaceBetween>
+          flush
+        >
+          <Toolbar pagination={<Pagination page={page} pages={pages} onChange={setPage} />}>
+            <Secondary>Sorted by {sort === 'savings' ? 'space you can free' : sort === 'count' ? 'number of copies' : 'file size'}</Secondary>
+          </Toolbar>
+          <Table<Row>
+            items={items}
+            trackBy={(r) => r.id}
+            columns={COLUMNS}
+            loading={groups.isPending}
+            dimmed={groups.isPlaceholderData}
+            sort={{ field: sort, desc: true }}
+            onSort={(f) => setSort(f as DuplicateSort)}
+            selection={{
+              selected,
+              onChange: (rows) => setSelected(rows.filter((r) => r.kind === 'group')),
+              isDisabled: (r) => r.kind === 'file',
+              label: (r) => (r.kind === 'group' ? `Select group ${r.group.files[0]?.file.name ?? ''}` : ''),
+            }}
+            tree={{
+              isParent: (r) => r.kind === 'group',
+              children: (r) => (r.kind === 'group' ? fileRows(r.group) : []),
+              isExpanded: (r) => !collapsed.has(r.group.id),
+              onToggle: (r, open) => setCollapsed((c) => {
+                const next = new Set(c)
+                if (open) next.delete(r.group.id)
+                else next.add(r.group.id)
+                return next
+              }),
+            }}
+            empty={
+              <EmptyState title="No duplicates found" action={<Button onClick={runDetect} loading={detect.isPending}>Find duplicates</Button>}>
+                Run a scan first, then find duplicates. Google Docs, Sheets and Slides are never matched.
+              </EmptyState>
+            }
+          />
+          {pages > 1 && <div className="flex justify-end border-t border-line px-4 py-2 dark:border-slate-700"><Pagination page={page} pages={pages} onChange={(p) => { setPage(p); window.scrollTo({ top: 0 }) }} /></div>}
+        </Panel>
+      </div>
       <Modal
         visible={confirmAll}
         onDismiss={() => setConfirmAll(false)}
         header={`Apply suggestions to all ${total.toLocaleString()} groups?`}
         footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setConfirmAll(false)}>Cancel</Button>
-              <Button variant="primary" onClick={() => { setConfirmAll(false); bulk.run('all', total) }}>Apply to all groups</Button>
-            </SpaceBetween>
-          </Box>
+          <>
+            <Button variant="link" className="mr-2" onClick={() => setConfirmAll(false)}>Cancel</Button>
+            <Button variant="primary" onClick={() => { setConfirmAll(false); bulk.run('all', total) }}>Apply to all groups</Button>
+          </>
         }
       >
         In every group the oldest copy is kept and the other copies are marked for Trash, replacing choices you made
         before. Nothing changes in Drive: you review the marked files in Cleanup before anything moves.
       </Modal>
-    </ContentLayout>
+    </div>
   )
 }

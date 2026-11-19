@@ -1,10 +1,7 @@
-import Alert from '@cloudscape-design/components/alert'
-import Box from '@cloudscape-design/components/box'
-import Button from '@cloudscape-design/components/button'
-import Spinner from '@cloudscape-design/components/spinner'
 import { lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useDelayedFlag } from './components/loading/useDelayedFlag'
+import { Alert, Button, Spinner } from './components/ui/core'
 import { useAuthStatus } from './hooks/useGoogleDrive'
 import AppShell from './layouts/AppShell'
 import { errorMessage } from './services/api'
@@ -22,27 +19,21 @@ const Trash = lazy(() => import('./pages/Trash'))
 const ScanHistory = lazy(() => import('./pages/ScanHistory'))
 const Settings = lazy(() => import('./pages/Settings'))
 
-const centred = { minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 16 } as const
-
 export default function App() {
   const auth = useAuthStatus()
   const slow = useDelayedFlag(auth.isLoading)
 
   if (auth.isLoading) {
     return (
-      <div style={centred}>
-        {slow && (
-          <Box color="text-body-secondary">
-            <Spinner size="large" /> Connecting to DriveClean
-          </Box>
-        )}
+      <div className="grid min-h-screen place-items-center p-4">
+        {slow && <p className="flex items-center gap-2 text-slate-500"><Spinner size={20} /> Connecting to DriveClean</p>}
       </div>
     )
   }
   if (auth.isError) {
     return (
-      <div style={centred}>
-        <div style={{ maxWidth: 560 }}>
+      <div className="grid min-h-screen place-items-center p-4">
+        <div className="w-full max-w-xl">
           <Alert type="error" header="Can't reach DriveClean" action={<Button onClick={() => auth.refetch()}>Retry</Button>}>
             {errorMessage(auth.error)}
           </Alert>

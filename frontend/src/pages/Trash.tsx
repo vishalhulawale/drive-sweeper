@@ -1,21 +1,9 @@
-import Alert from '@cloudscape-design/components/alert'
-import Badge from '@cloudscape-design/components/badge'
-import Box from '@cloudscape-design/components/box'
-import Button from '@cloudscape-design/components/button'
-import Container from '@cloudscape-design/components/container'
-import ContentLayout from '@cloudscape-design/components/content-layout'
-import Header from '@cloudscape-design/components/header'
-import KeyValuePairs from '@cloudscape-design/components/key-value-pairs'
-import Link from '@cloudscape-design/components/link'
-import Pagination from '@cloudscape-design/components/pagination'
-import Skeleton from '@cloudscape-design/components/skeleton'
-import SpaceBetween from '@cloudscape-design/components/space-between'
-import Table from '@cloudscape-design/components/table'
 import { useState, type ReactNode } from 'react'
 import TrashTimeline from '../components/charts/TrashTimeline'
 import EmptyState from '../components/common/EmptyState'
 import InfoLink from '../components/common/InfoLink'
-import { AppLink } from '../components/common/RouterLink'
+import { Alert, AppLink, Badge, Button, ExternalAnchor, PageHeader, Panel, Skeleton, StatTiles } from '../components/ui/core'
+import { Pagination, Table } from '../components/ui/table'
 import { useRefreshTrashDates, useTrashItems, useTrashOverview, useTrashTimeline } from '../hooks/useTrash'
 import { useNotify } from '../layouts/notifications'
 import { errorMessage } from '../services/api'
@@ -38,7 +26,7 @@ export default function Trash() {
   const refresh = useRefreshTrashDates()
   const { notify } = useNotify()
   const o = overview.data
-  const v = (x: ReactNode) => (o ? x : <Skeleton variant="text-body-m" width="100px" />)
+  const v = (x: ReactNode) => (o ? x : <Skeleton className="h-6 w-24" />)
   const total = items.data?.total ?? 0
 
   const fetchDates = () =>
@@ -48,27 +36,18 @@ export default function Trash() {
     })
 
   return (
-    <ContentLayout
-      header={
-        <Header
-          variant="h1"
-          info={<InfoLink />}
-          description={`Files you own in Google Drive's Trash. They still use storage until Drive deletes them, ${o?.auto_delete_days ?? 30} days after they were trashed.`}
-          actions={
-            <Button href={o?.drive_trash_url ?? 'https://drive.google.com/drive/trash'} target="_blank" iconName="external" iconAlign="right">
-              Open Drive Trash
-            </Button>
-          }
-        >
-          Trash
-        </Header>
-      }
-    >
-      <SpaceBetween size="l">
+    <div>
+      <PageHeader
+        title="Trash"
+        info={<InfoLink />}
+        description={`Files you own in Google Drive's Trash. They still use storage until Drive deletes them, ${o?.auto_delete_days ?? 30} days after they were trashed.`}
+        actions={<Button href={o?.drive_trash_url ?? 'https://drive.google.com/drive/trash'} newTab>Open Drive Trash</Button>}
+      />
+      <div className="flex flex-col gap-6">
         {overview.isError && <Alert type="error">{errorMessage(overview.error)}</Alert>}
         <Alert type="info">
           To free this space sooner, empty the Trash in Drive. That is permanent, so DriveClean doesn&apos;t do it for you.
-          Trashed something by mistake? Restore it from the <AppLink href="/cleanup">Cleanup history</AppLink> before Drive deletes it.
+          Trashed something by mistake? Restore it from the <AppLink to="/cleanup">Cleanup history</AppLink> before Drive deletes it.
         </Alert>
         {o && o.undated_files > 0 && (
           <Alert type="warning" action={<Button onClick={fetchDates} loading={refresh.isPending}>Fetch dates</Button>}>
@@ -77,77 +56,69 @@ export default function Trash() {
           </Alert>
         )}
 
-        <Container header={<Header variant="h2">Overview</Header>}>
-          <SpaceBetween size="l">
-            <KeyValuePairs
-              columns={3}
-              items={[
-                { label: 'Taking up space', value: v(<>{formatBytes(o?.bytes)} <Box variant="span" color="text-body-secondary">in {o?.files.toLocaleString()} files</Box></>) },
-                { label: 'Deleted by Drive within 7 days', value: v(<>{formatBytes(o?.deleting_soon_bytes)} <Box variant="span" color="text-body-secondary">in {o?.deleting_soon_files.toLocaleString()} files</Box></>) },
-                { label: 'Next automatic deletion', value: v(o?.next_auto_delete_at ? formatDate(o.next_auto_delete_at) : 'None due') },
-              ]}
-            />
-            {(!o || o.files > 0) && (
-              <TrashTimeline
-                items={timeline.data?.items}
-                status={timeline.isError ? 'error' : timeline.data ? 'finished' : 'loading'}
-                onRetry={() => timeline.refetch()}
-              />
-            )}
-          </SpaceBetween>
-        </Container>
-
-        <Table<TrashItem>
-          trackBy={(i) => i.file.google_file_id}
-          items={items.data?.items ?? []}
-          loading={items.isPending}
-          loadingText="Loading Trash"
-          sortingColumn={{ sortingField: sort }}
-          sortingDescending={sort === 'size'}
-          onSortingChange={(e) => {
-            const f = e.detail.sortingColumn.sortingField as TrashSort | undefined
-            if (f) { setSort(f); setPage(1) }
-          }}
-          header={<Header counter={items.data ? `(${total.toLocaleString()})` : undefined}>Items in Trash</Header>}
-          columnDefinitions={[
-            {
-              id: 'name', header: 'Name', sortingField: 'name', isRowHeader: true,
-              cell: (i) => (
-                <SpaceBetween direction="horizontal" size="xs">
-                  <Link href={i.file.web_view_link ?? undefined} external externalIconAriaLabel="(opens in Google Drive)">{i.file.name}</Link>
-                  {i.trashed_by_app && <Badge>Trashed in DriveClean</Badge>}
-                </SpaceBetween>
-              ),
-            },
-            { id: 'trashed', header: 'Trashed', cell: (i) => formatDate(i.trashed_at) },
-            {
-              id: 'deletes', header: 'Deleted by Drive', sortingField: 'deletes',
-              cell: (i) => {
-                const left = daysLeft(i.auto_deletes_at)
-                if (left === null) return '—'
-                return (
-                  <SpaceBetween size="xxxs">
-                    <span>{formatDate(i.auto_deletes_at)}</span>
-                    <Box fontSize="body-s" color={left <= 7 ? 'text-status-warning' : 'text-body-secondary'}>
-                      {left <= 0 ? 'Due now' : `In ${left} day${left === 1 ? '' : 's'}`}
-                    </Box>
-                  </SpaceBetween>
-                )
-              },
-            },
-            { id: 'size', header: 'Size', sortingField: 'size', cell: (i) => formatBytes(i.file.size) },
+        <StatTiles
+          items={[
+            { label: 'Taking up space', value: v(formatBytes(o?.bytes)), detail: o && `in ${o.files.toLocaleString()} files` },
+            { label: 'Deleted by Drive within 7 days', value: v(formatBytes(o?.deleting_soon_bytes)), detail: o && `in ${o.deleting_soon_files.toLocaleString()} files` },
+            { label: 'Next automatic deletion', value: v(o?.next_auto_delete_at ? formatDate(o.next_auto_delete_at) : 'None due') },
           ]}
-          pagination={
-            <Pagination
-              currentPageIndex={page}
-              pagesCount={Math.max(1, Math.ceil(total / PAGE_SIZE))}
-              onChange={(e) => setPage(e.detail.currentPageIndex)}
-              ariaLabels={{ nextPageLabel: 'Next page', previousPageLabel: 'Previous page', pageLabel: (n) => `Page ${n}` }}
-            />
-          }
-          empty={<EmptyState title="Your Trash is empty">Files you move to Trash appear here until Drive deletes them.</EmptyState>}
         />
-      </SpaceBetween>
-    </ContentLayout>
+
+        {(!o || o.files > 0) && (
+          <Panel title="Deletion timeline" description="Space Drive frees each day over the next 30 days.">
+            <TrashTimeline
+              items={timeline.data?.items}
+              status={timeline.isError ? 'error' : timeline.data ? 'finished' : 'loading'}
+              onRetry={() => timeline.refetch()}
+            />
+          </Panel>
+        )}
+
+        <Panel
+          title="Items in Trash"
+          counter={items.data ? `(${total.toLocaleString()})` : undefined}
+          actions={<Pagination page={page} pages={Math.max(1, Math.ceil(total / PAGE_SIZE))} onChange={setPage} />}
+          flush
+        >
+          <Table<TrashItem>
+            items={items.data?.items ?? []}
+            trackBy={(i) => i.file.google_file_id}
+            loading={items.isPending}
+            dimmed={items.isPlaceholderData}
+            sort={{ field: sort, desc: sort === 'size' }}
+            onSort={(f) => { setSort(f as TrashSort); setPage(1) }}
+            columns={[
+              {
+                id: 'name', header: 'Name', sortField: 'name',
+                cell: (i) => (
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <ExternalAnchor href={i.file.web_view_link}>{i.file.name}</ExternalAnchor>
+                    {i.trashed_by_app && <Badge color="blue">Trashed in DriveClean</Badge>}
+                  </span>
+                ),
+              },
+              { id: 'trashed', header: 'Trashed', cell: (i) => formatDate(i.trashed_at) },
+              {
+                id: 'deletes', header: 'Deleted by Drive', sortField: 'deletes',
+                cell: (i) => {
+                  const left = daysLeft(i.auto_deletes_at)
+                  if (left === null) return '—'
+                  return (
+                    <div className="flex flex-col gap-0.5">
+                      <span>{formatDate(i.auto_deletes_at)}</span>
+                      <span className={left <= 7 ? 'text-xs font-semibold text-amber-700 dark:text-amber-400' : 'text-xs text-slate-500'}>
+                        {left <= 0 ? 'Due now' : `In ${left} day${left === 1 ? '' : 's'}`}
+                      </span>
+                    </div>
+                  )
+                },
+              },
+              { id: 'size', header: 'Size', sortField: 'size', align: 'right', cell: (i) => formatBytes(i.file.size) },
+            ]}
+            empty={<EmptyState title="Your Trash is empty">Files you move to Trash appear here until Drive deletes them.</EmptyState>}
+          />
+        </Panel>
+      </div>
+    </div>
   )
 }

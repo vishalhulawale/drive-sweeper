@@ -140,6 +140,9 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Duplicates and Cleanup sync with Drive when opened
+- Files deleted or changed directly in Drive stayed on these pages until the next sync. Opening either page now runs a quick sync (`useSyncOnOpen` in `hooks/useSync.ts`), and the lists reload when it finishes. It is skipped if a sync ran in the last minute (so switching between the pages does not sync twice) and while a cleanup run is in progress. A notice appears only when Drive had changes, and errors are silent (for example while a full scan runs). On Cleanup, **Move to Trash** waits for the sync, so the count you confirm matches the up-to-date list.
+
 ### 2026-11-19 - Cleanup drops files that were already deleted in Drive
 - Bug: 8 files deleted permanently in Drive stayed in Cleanup. Drive answered 404 on each run, the operation was recorded as failed, the file stayed marked Trash, and it came back every time.
 - `DriveClient` now raises `NotFound` (a `DriveError`) on 404. During a cleanup run, a file Drive says no longer exists is recorded as skipped ("No longer in Drive") and its stale row is deleted, as sync does for removed files; its group membership goes with it, and the history row keeps its name and size. If the kept copy no longer exists, nothing in that group is trashed and the keeper's row is dropped, so you can choose another copy. Two new tests.

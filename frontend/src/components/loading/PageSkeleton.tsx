@@ -1,26 +1,24 @@
-import Container from '@cloudscape-design/components/container'
-import ContentLayout from '@cloudscape-design/components/content-layout'
-import Skeleton from '@cloudscape-design/components/skeleton'
-import SpaceBetween from '@cloudscape-design/components/space-between'
+import { Skeleton } from '../ui/core'
 import { useDelayedFlag } from './useDelayedFlag'
 
 /** Placeholder lines shaped like a block of text. */
 export function TextSkeleton({ lines = 3 }: { lines?: number }) {
   return (
-    <SpaceBetween size="xs">
+    <div className="flex flex-col gap-2">
       {Array.from({ length: lines }, (_, i) => (
-        <Skeleton key={i} variant="text-body-m" width={i === lines - 1 ? '60%' : '100%'} />
+        <Skeleton key={i} className="h-4" style={{ width: i === lines - 1 ? '60%' : '100%' }} />
       ))}
-    </SpaceBetween>
+    </div>
   )
 }
 
-/** A container-shaped placeholder: header line plus body lines. */
+/** A panel-shaped placeholder: header line plus body lines. */
 export function ContainerSkeleton({ lines = 3 }: { lines?: number }) {
   return (
-    <Container header={<Skeleton variant="text-heading-m" width="30%" />}>
-      <TextSkeleton lines={lines} />
-    </Container>
+    <div className="border border-line dark:border-slate-700">
+      <div className="border-b border-line px-4 py-3 dark:border-slate-700"><Skeleton className="h-5 w-1/3" /></div>
+      <div className="p-4"><TextSkeleton lines={lines} /></div>
+    </div>
   )
 }
 
@@ -29,11 +27,10 @@ export default function PageSkeleton() {
   const show = useDelayedFlag(true)
   if (!show) return null
   return (
-    <ContentLayout header={<Skeleton variant="text-heading-xl" width="240px" />}>
-      <SpaceBetween size="l">
-        <ContainerSkeleton lines={2} />
-        <ContainerSkeleton lines={5} />
-      </SpaceBetween>
-    </ContentLayout>
+    <div className="flex flex-col gap-6">
+      <Skeleton className="h-9 w-60" />
+      <ContainerSkeleton lines={2} />
+      <ContainerSkeleton lines={5} />
+    </div>
   )
 }

@@ -1,27 +1,16 @@
-import { useCollection } from '@cloudscape-design/collection-hooks'
-import Alert from '@cloudscape-design/components/alert'
-import Box from '@cloudscape-design/components/box'
-import Button from '@cloudscape-design/components/button'
-import ContentLayout from '@cloudscape-design/components/content-layout'
-import ExpandableSection from '@cloudscape-design/components/expandable-section'
-import Header from '@cloudscape-design/components/header'
-import KeyValuePairs from '@cloudscape-design/components/key-value-pairs'
-import Link from '@cloudscape-design/components/link'
-import Modal from '@cloudscape-design/components/modal'
-import Pagination from '@cloudscape-design/components/pagination'
-import SpaceBetween from '@cloudscape-design/components/space-between'
-import Table from '@cloudscape-design/components/table'
-import TextFilter from '@cloudscape-design/components/text-filter'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import EmptyState from '../components/common/EmptyState'
 import InfoLink from '../components/common/InfoLink'
-import { AppButtonLink } from '../components/common/RouterLink'
 import { OperationStatusIndicator } from '../components/common/status'
+import { Alert, Button, ExternalAnchor, KeyValues, PageHeader, Panel, SearchInput, Secondary } from '../components/ui/core'
+import { Modal } from '../components/ui/overlay'
+import { Pagination, Table, Toolbar, useCollection } from '../components/ui/table'
 import {
   useCleanupPlan, useCleanupStatus, useExecuteCleanup, useOperations, useRestore,
 } from '../hooks/useCleanup'
 import { useAuthStatus } from '../hooks/useGoogleDrive'
+import { useSyncOnOpen } from '../hooks/useSync'
 import { useNotify } from '../layouts/notifications'
 import { errorMessage } from '../services/api'
 import { authService } from '../services/authService'
@@ -32,62 +21,59 @@ const ACTION_TEXT: Record<Operation['operation_type'], string> = {
   trash: 'Moved to Trash', restore: 'Restored', move: 'Moved to folder', unmove: 'Move undone',
 }
 
-const paginationLabels = { nextPageLabel: 'Next page', previousPageLabel: 'Previous page', pageLabel: (n: number) => `Page ${n}` }
+const matches = (n: number) => `${n} match${n === 1 ? '' : 'es'}`
+
+const PLAN_COMPARE = {
+  name: (a: PlanItem, b: PlanItem) => a.file.name.localeCompare(b.file.name),
+  keeper: (a: PlanItem, b: PlanItem) => a.keeper_name.localeCompare(b.keeper_name),
+  size: (a: PlanItem, b: PlanItem) => (a.file.size ?? 0) - (b.file.size ?? 0),
+}
+const planFilter = (i: PlanItem, text: string) => {
+  const t = text.toLowerCase()
+  return i.file.name.toLowerCase().includes(t) || i.keeper_name.toLowerCase().includes(t)
+}
 
 function ReadyTable({ items, loading }: { items: PlanItem[]; loading: boolean }) {
-  const { items: shown, collectionProps, filterProps, paginationProps, filteredItemsCount } = useCollection(items, {
-    filtering: {
-      filteringFunction: (i, text) => {
-        const t = text.toLowerCase()
-        return i.file.name.toLowerCase().includes(t) || i.keeper_name.toLowerCase().includes(t)
-      },
-      empty: (
-        <EmptyState
-          title="Nothing marked for Trash"
-          action={<SpaceBetween direction="horizontal" size="xs"><AppButtonLink href="/duplicates">Review duplicates</AppButtonLink><AppButtonLink href="/similar">Review similar photos</AppButtonLink></SpaceBetween>}
-        >
-          Mark files as Trash on the Duplicates or Similar photos page, then come back here.
-        </EmptyState>
-      ),
-      noMatch: <EmptyState title="No matching files">No file or kept copy matches that text.</EmptyState>,
-    },
-    sorting: { defaultState: { sortingColumn: { sortingField: 'size' }, isDescending: true } },
-    pagination: { pageSize: 50 },
-  })
+  const list = useCollection(items, { pageSize: 50, filter: planFilter, sort: { field: 'size', desc: true }, comparators: PLAN_COMPARE })
 
   return (
-    <Table<PlanItem>
-      {...collectionProps}
-      trackBy={(i) => i.file.google_file_id}
-      items={shown}
-      loading={loading}
-      loadingText="Loading marked files"
-      header={<Header counter={`(${items.length.toLocaleString()})`} description="Each file is checked against Drive before it moves, so the copy you keep is never lost.">Ready to move to Trash</Header>}
-      filter={
-        <TextFilter
-          {...filterProps}
-          filteringPlaceholder="Find a file"
-          filteringAriaLabel="Filter marked files"
-          countText={filterProps.filteringText ? `${filteredItemsCount} match${filteredItemsCount === 1 ? '' : 'es'}` : undefined}
-        />
-      }
-      pagination={<Pagination {...paginationProps} ariaLabels={paginationLabels} />}
-      columnDefinitions={[
-        {
-          id: 'file', header: 'File to trash', isRowHeader: true, sortingField: 'name',
-          sortingComparator: (a, b) => a.file.name.localeCompare(b.file.name),
-          cell: (i) => <Link href={i.file.web_view_link ?? undefined} external externalIconAriaLabel="(opens in Google Drive)">{i.file.name}</Link>,
-        },
-        { id: 'keeper', header: 'Copy you keep', cell: (i) => i.keeper_name, sortingComparator: (a, b) => a.keeper_name.localeCompare(b.keeper_name) },
-        {
-          id: 'size', header: 'Size', sortingField: 'size',
-          sortingComparator: (a, b) => (a.file.size ?? 0) - (b.file.size ?? 0),
-          cell: (i) => formatBytes(i.file.size),
-        },
-      ]}
-    />
+    <Panel
+      title="Ready to move to Trash"
+      counter={`(${items.length.toLocaleString()})`}
+      description="Each file is checked against Drive before it moves, so the copy you keep is never lost."
+      flush
+    >
+      <Toolbar pagination={<Pagination page={list.page} pages={list.pages} onChange={list.setPage} />}>
+        <SearchInput value={list.text} onChange={list.setText} placeholder="Find a file" ariaLabel="Filter marked files" className="w-full max-w-sm" />
+        {list.text && <Secondary>{matches(list.filteredCount)}</Secondary>}
+      </Toolbar>
+      <Table<PlanItem>
+        items={list.items}
+        trackBy={(i) => i.file.google_file_id}
+        loading={loading}
+        sort={list.sort}
+        onSort={list.setSort}
+        columns={[
+          { id: 'file', header: 'File to trash', sortField: 'name', cell: (i) => <ExternalAnchor href={i.file.web_view_link}>{i.file.name}</ExternalAnchor> },
+          { id: 'keeper', header: 'Copy you keep', sortField: 'keeper', cell: (i) => <span className="text-emerald-700 dark:text-emerald-400">{i.keeper_name}</span> },
+          { id: 'size', header: 'Size', sortField: 'size', align: 'right', cell: (i) => formatBytes(i.file.size) },
+        ]}
+        empty={
+          list.text ? <EmptyState title="No matching files">No file or kept copy matches that text.</EmptyState> : (
+            <EmptyState
+              title="Nothing marked for Trash"
+              action={<><Button to="/duplicates">Review duplicates</Button><Button to="/similar">Review similar photos</Button></>}
+            >
+              Mark files as Trash on the Duplicates or Similar photos page, then come back here.
+            </EmptyState>
+          )
+        }
+      />
+    </Panel>
   )
 }
+
+const opFilter = (o: Operation, text: string) => o.file_name.toLowerCase().includes(text.toLowerCase())
 
 function History({ canTrash }: { canTrash: boolean }) {
   const status = useCleanupStatus()
@@ -96,19 +82,11 @@ function History({ canTrash }: { canTrash: boolean }) {
   const { notify } = useNotify()
   const [selected, setSelected] = useState<Operation[]>([])
   const restorable = (o: Operation) => o.operation_type === 'trash' && o.status === 'completed' && !o.file_deleted
+  const list = useCollection(ops.data ?? [], { pageSize: 25, filter: opFilter })
 
-  const { items: shown, collectionProps, filterProps, paginationProps, filteredItemsCount } = useCollection(ops.data ?? [], {
-    filtering: {
-      filteringFunction: (o, text) => o.file_name.toLowerCase().includes(text.toLowerCase()),
-      empty: <EmptyState title="No cleanup actions yet">Files you move to Trash here are listed, and can be restored.</EmptyState>,
-      noMatch: <EmptyState title="No matching files" />,
-    },
-    pagination: { pageSize: 25 },
-  })
-
-  const restoreMany = async (list: Operation[]) => {
+  const restoreMany = async (items: Operation[]) => {
     let ok = 0
-    for (const o of list) {
+    for (const o of items) {
       try {
         await restore.mutateAsync(o.id)
         ok++
@@ -123,69 +101,52 @@ function History({ canTrash }: { canTrash: boolean }) {
   const chosen = selected.filter(restorable)
 
   return (
-    <Table<Operation>
-      {...collectionProps}
-      trackBy="id"
-      items={shown}
-      loading={ops.isPending}
-      loadingText="Loading history"
-      selectionType="multi"
-      selectedItems={selected}
-      onSelectionChange={(e) => setSelected(e.detail.selectedItems)}
-      isItemDisabled={(o) => !restorable(o)}
-      ariaLabels={{
-        selectionGroupLabel: 'History selection',
-        itemSelectionLabel: (_, o) => `Select ${o.file_name}`,
-        allItemsSelectionLabel: () => 'Select all on this page',
-      }}
-      header={
-        <Header
-          counter={ops.data ? `(${ops.data.length.toLocaleString()})` : undefined}
-          actions={
-            <Button disabled={!canTrash || !chosen.length} loading={restore.isPending} onClick={() => restoreMany(chosen)}>
-              {chosen.length ? `Restore ${chosen.length} selected` : 'Restore selected'}
-            </Button>
-          }
-        >
-          History
-        </Header>
+    <Panel
+      title="History"
+      counter={ops.data ? `(${ops.data.length.toLocaleString()})` : undefined}
+      actions={
+        <Button disabled={!canTrash || !chosen.length} loading={restore.isPending} onClick={() => restoreMany(chosen)}>
+          {chosen.length ? `Restore ${chosen.length} selected` : 'Restore selected'}
+        </Button>
       }
-      filter={
-        <TextFilter
-          {...filterProps}
-          filteringPlaceholder="Find a file"
-          filteringAriaLabel="Filter history"
-          countText={filterProps.filteringText ? `${filteredItemsCount} match${filteredItemsCount === 1 ? '' : 'es'}` : undefined}
-        />
-      }
-      pagination={<Pagination {...paginationProps} ariaLabels={paginationLabels} />}
-      columnDefinitions={[
-        { id: 'when', header: 'When', cell: (o) => formatDate(o.completed_at ?? o.created_at) },
-        { id: 'action', header: 'Action', cell: (o) => ACTION_TEXT[o.operation_type] ?? o.operation_type },
-        {
-          id: 'file', header: 'File', isRowHeader: true,
-          cell: (o) => (
-            <SpaceBetween size="xxxs">
-              {o.web_view_link && !o.file_deleted
-                ? <Link href={o.web_view_link} external externalIconAriaLabel="(opens in Google Drive)">{o.file_name}</Link>
-                : o.file_name}
-              {o.file_deleted && <Box fontSize="body-s" color="text-body-secondary">Deleted from Drive</Box>}
-              {o.error_message && <Box fontSize="body-s" color="text-status-error">{o.error_message}</Box>}
-            </SpaceBetween>
-          ),
-        },
-        { id: 'size', header: 'Size', cell: (o) => formatBytes(o.file_size) },
-        { id: 'status', header: 'Status', cell: (o) => <OperationStatusIndicator status={o.status} /> },
-        {
-          id: 'restore', header: '',
-          cell: (o) => restorable(o) && (
-            <Button variant="inline-link" disabled={!canTrash || restore.isPending} onClick={() => restoreMany([o])} ariaLabel={`Restore ${o.file_name}`}>
-              Restore
-            </Button>
-          ),
-        },
-      ]}
-    />
+      flush
+    >
+      <Toolbar pagination={<Pagination page={list.page} pages={list.pages} onChange={list.setPage} />}>
+        <SearchInput value={list.text} onChange={list.setText} placeholder="Find a file" ariaLabel="Filter history" className="w-full max-w-sm" />
+        {list.text && <Secondary>{matches(list.filteredCount)}</Secondary>}
+      </Toolbar>
+      <Table<Operation>
+        items={list.items}
+        trackBy={(o) => o.id}
+        loading={ops.isPending}
+        selection={{ selected, onChange: setSelected, isDisabled: (o) => !restorable(o), label: (o) => `Select ${o.file_name}` }}
+        columns={[
+          { id: 'when', header: 'When', className: 'whitespace-nowrap', cell: (o) => formatDate(o.completed_at ?? o.created_at) },
+          { id: 'action', header: 'Action', cell: (o) => ACTION_TEXT[o.operation_type] ?? o.operation_type },
+          {
+            id: 'file', header: 'File',
+            cell: (o) => (
+              <div className="flex flex-col gap-0.5">
+                {o.web_view_link && !o.file_deleted ? <ExternalAnchor href={o.web_view_link}>{o.file_name}</ExternalAnchor> : <span>{o.file_name}</span>}
+                {o.file_deleted && <Secondary className="text-xs">Deleted from Drive</Secondary>}
+                {o.error_message && <span className="text-xs text-rose-600">{o.error_message}</span>}
+              </div>
+            ),
+          },
+          { id: 'size', header: 'Size', align: 'right', cell: (o) => formatBytes(o.file_size) },
+          { id: 'status', header: 'Status', cell: (o) => <OperationStatusIndicator status={o.status} /> },
+          {
+            id: 'restore', header: '',
+            cell: (o) => restorable(o) && (
+              <Button variant="link" disabled={!canTrash || restore.isPending} onClick={() => restoreMany([o])} ariaLabel={`Restore ${o.file_name}`}>Restore</Button>
+            ),
+          },
+        ]}
+        empty={list.text
+          ? <EmptyState title="No matching files" />
+          : <EmptyState title="No cleanup actions yet">Files you move to Trash here are listed, and can be restored.</EmptyState>}
+      />
+    </Panel>
   )
 }
 
@@ -196,6 +157,8 @@ export default function Cleanup() {
   const execute = useExecuteCleanup()
   const { notify } = useNotify()
   const running = status.data?.running ?? false
+  // Catch files deleted or changed directly in Drive; not during a run (wait until its status is known).
+  const syncing = useSyncOnOpen(status.isPending || running)
   const [confirming, setConfirming] = useState(false)
 
   // Polling stops the moment the run ends, so the last poll can still show files as pending.
@@ -225,77 +188,65 @@ export default function Cleanup() {
     })
 
   return (
-    <ContentLayout
-      header={
-        <Header
-          variant="h1"
-          info={<InfoLink />}
-          description="Files you marked for Trash. They go to Google Drive's Trash, where you can restore them for 30 days."
-          actions={
-            <Button
-              variant="primary"
-              disabled={!canTrash || count === 0 || tooMany || running}
-              onClick={() => setConfirming(true)}
-            >
-              {count ? `Move ${count.toLocaleString()} file${count === 1 ? '' : 's'} to Trash` : 'Move to Trash'}
-            </Button>
-          }
-        >
-          Cleanup
-        </Header>
-      }
-    >
-      <SpaceBetween size="l">
+    <div>
+      <PageHeader
+        title="Cleanup"
+        info={<InfoLink />}
+        description="Files you marked for Trash. They go to Google Drive's Trash, where you can restore them for 30 days."
+        actions={
+          <Button variant="primary" loading={syncing} disabled={!canTrash || count === 0 || tooMany || running || syncing} onClick={() => setConfirming(true)}>
+            {count ? `Move ${count.toLocaleString()} file${count === 1 ? '' : 's'} to Trash` : 'Move to Trash'}
+          </Button>
+        }
+      />
+      <div className="flex flex-col gap-6">
         {!canTrash && auth.data && (
           <Alert type="warning" header="Permission needed" action={<Button href={authService.upgradeUrl}>Allow moving to Trash</Button>}>
             Moving files to Trash needs a broader Google permission than scanning. Nothing is deleted permanently.
           </Alert>
         )}
         {plan.isError && <Alert type="error">{errorMessage(plan.error)}</Alert>}
-        {tooMany && (
-          <Alert type="info">At most {p?.max_batch.toLocaleString()} files per run. Unmark some files and run again.</Alert>
-        )}
+        {tooMany && <Alert type="info">At most {p?.max_batch.toLocaleString()} files per run. Unmark some files and run again.</Alert>}
         {p && p.blocked.length > 0 && (
           <Alert type="warning" header={`${p.blocked.length} group${p.blocked.length === 1 ? '' : 's'} can't be cleaned up as marked`}>
-            <ExpandableSection headerText="Show the reasons" variant="footer">
-              <ul style={{ margin: 0, paddingLeft: 20 }}>
+            <details>
+              <summary className="cursor-pointer font-semibold text-brand-600 dark:text-brand-500">Show the reasons</summary>
+              <ul className="mt-1 list-disc pl-5">
                 {p.blocked.map((b) => <li key={b.group_id}>Group {b.group_id}: {b.reason}</li>)}
               </ul>
-            </ExpandableSection>
+            </details>
           </Alert>
         )}
         <ReadyTable items={p?.items ?? []} loading={plan.isPending} />
         <History canTrash={canTrash} />
-      </SpaceBetween>
+      </div>
 
       <Modal
         visible={confirming}
         onDismiss={() => setConfirming(false)}
         header={`Move ${count.toLocaleString()} file${count === 1 ? '' : 's'} to Trash?`}
         footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setConfirming(false)}>Cancel</Button>
-              <Button variant="primary" loading={execute.isPending} onClick={run}>Move to Trash</Button>
-            </SpaceBetween>
-          </Box>
+          <>
+            <Button variant="link" className="mr-2" onClick={() => setConfirming(false)}>Cancel</Button>
+            <Button variant="primary" loading={execute.isPending} onClick={run}>Move to Trash</Button>
+          </>
         }
       >
-        <SpaceBetween size="m">
-          <KeyValuePairs
+        <div className="flex flex-col gap-4">
+          <KeyValues
             columns={3}
             items={[
-              { label: 'Files', value: count.toLocaleString() },
-              { label: 'Size', value: formatBytes(p?.bytes) },
-              { label: 'Groups', value: groupCount.toLocaleString() },
+              { label: 'Files', value: <span className="font-semibold">{count.toLocaleString()}</span> },
+              { label: 'Size', value: <span className="font-semibold">{formatBytes(p?.bytes)}</span> },
+              { label: 'Groups', value: <span className="font-semibold">{groupCount.toLocaleString()}</span> },
             ]}
           />
-          <Box variant="p">
+          <p>
             The files move to your Google Drive Trash. The copy you keep in each group is checked against Drive first.
             Large selections run in the background; you can cancel the rest and restore any file from the history.
-          </Box>
-        </SpaceBetween>
+          </p>
+        </div>
       </Modal>
-    </ContentLayout>
+    </div>
   )
 }

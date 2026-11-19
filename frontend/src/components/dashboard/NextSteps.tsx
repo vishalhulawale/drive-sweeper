@@ -1,9 +1,3 @@
-import Box from '@cloudscape-design/components/box'
-import ColumnLayout from '@cloudscape-design/components/column-layout'
-import Container from '@cloudscape-design/components/container'
-import Header from '@cloudscape-design/components/header'
-import SpaceBetween from '@cloudscape-design/components/space-between'
-import StatusIndicator, { type StatusIndicatorProps } from '@cloudscape-design/components/status-indicator'
 import type { ReactNode } from 'react'
 import { useCleanupPlan } from '../../hooks/useCleanup'
 import { useDuplicateSummary } from '../../hooks/useDuplicates'
@@ -11,16 +5,15 @@ import { useNearStatus } from '../../hooks/useNear'
 import { useScans } from '../../hooks/useScan'
 import { useTrashOverview } from '../../hooks/useTrash'
 import { formatBytes } from '../../utils/format'
-import { AppLink } from '../common/RouterLink'
-import Skeleton from '@cloudscape-design/components/skeleton'
+import { AppLink, cx, Skeleton, Status, type StatusType } from '../ui/core'
 
 interface Step {
   title: string
-  status?: [StatusIndicatorProps.Type, string]
+  status?: [StatusType, string]
   link: ReactNode
 }
 
-/** The cleanup workflow as a real sequence, each step with its live state and a link. */
+/** The cleanup workflow as a numbered sequence, each step with its live state and a link. */
 export default function NextSteps() {
   const scans = useScans()
   const dups = useDuplicateSummary()
@@ -36,36 +29,41 @@ export default function NextSteps() {
     {
       title: 'Scan your Drive',
       status: scans.data && (scanned ? ['success', 'Done'] : ['pending', 'Not yet']),
-      link: <AppLink href="/scans">Scan history</AppLink>,
+      link: <AppLink to="/scans">Scan history</AppLink>,
     },
     {
       title: 'Review matches',
       status: dups.data && near.data && (groups ? ['info', `${groups.toLocaleString()} groups to look at`] : ['success', 'Nothing to review']),
-      link: <SpaceBetween direction="horizontal" size="s"><AppLink href="/duplicates">Duplicates</AppLink><AppLink href="/similar">Similar photos</AppLink></SpaceBetween>,
+      link: <span className="flex gap-3"><AppLink to="/duplicates">Duplicates</AppLink><AppLink to="/similar">Similar photos</AppLink></span>,
     },
     {
       title: 'Move marked files to Trash',
       status: plan.data && (marked ? ['warning', `${marked.toLocaleString()} files, ${formatBytes(plan.data.bytes)}`] : ['stopped', 'Nothing marked']),
-      link: <AppLink href="/cleanup">Cleanup</AppLink>,
+      link: <AppLink to="/cleanup">Cleanup</AppLink>,
     },
     {
       title: 'Drive deletes after 30 days',
       status: trash.data && (trash.data.files ? ['info', `${trash.data.files.toLocaleString()} files waiting`] : ['success', 'Trash is empty']),
-      link: <AppLink href="/trash">Trash</AppLink>,
+      link: <AppLink to="/trash">Trash</AppLink>,
     },
   ]
 
   return (
-    <Container header={<Header variant="h2">Next steps</Header>}>
-      <ColumnLayout columns={4} variant="text-grid">
-        {steps.map((s, i) => (
-          <SpaceBetween key={s.title} size="xxs">
-            <Box variant="awsui-key-label">{i + 1}. {s.title}</Box>
-            {s.status ? <StatusIndicator type={s.status[0]}>{s.status[1]}</StatusIndicator> : <Skeleton variant="text-body-m" width="70%" />}
-            {s.link}
-          </SpaceBetween>
-        ))}
-      </ColumnLayout>
-    </Container>
+    <section>
+      <h2 className="text-xl font-semibold">Next steps</h2>
+      <ol className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {steps.map((s, i) => {
+          const done = s.status?.[0] === 'success'
+          return (
+            <li key={s.title} className={cx('border p-4', done ? 'border-emerald-300 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/30' : 'border-line dark:border-slate-700')}>
+              <div className="text-xs font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-500">Step {i + 1}</div>
+              <div className="font-semibold">{s.title}</div>
+              <div className="mt-2 text-sm">{s.status ? <Status type={s.status[0]}>{s.status[1]}</Status> : <Skeleton className="h-4 w-2/3" />}</div>
+              <div className="mt-2 text-sm">{s.link}</div>
+            </li>
+          )
+        })}
+      </ol>
+    </section>
   )
 }

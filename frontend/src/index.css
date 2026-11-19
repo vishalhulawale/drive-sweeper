@@ -1,58 +1,71 @@
-/* App-wide additions on top of Cloudscape's global styles. Body colours are set from design tokens in main.tsx. */
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Visual language shared with SAP-C03 Prep: AWS documentation chrome (squid top bar, white canvas, square bordered
+ * panels, Cloudscape blue for links and primary actions, AWS orange as the one accent). Open Sans is Cloudscape's own
+ * fallback font, self-hosted here so the app makes no font requests.
+ */
+@theme {
+  --font-sans: "Open Sans Variable", "Open Sans", "Helvetica Neue", Roboto, Arial, sans-serif;
+  --font-mono: "Source Code Pro Variable", Monaco, Menlo, Consolas, monospace;
+
+  /* Cloudscape blue (links, primary actions, selection) */
+  --color-brand-50: #f2f8fd;
+  --color-brand-100: #d3e7f9;
+  --color-brand-500: #539fe5;
+  --color-brand-600: #0972d3;
+  --color-brand-700: #0972d3;
+  --color-brand-900: #033160;
+
+  /* AWS chrome */
+  --color-squid: #232f3e;      /* top navigation bar */
+  --color-squid-dark: #161e2d; /* dark-mode canvas */
+  --color-aws-orange: #ff9900; /* accent */
+  --color-ink: #16191f;        /* body text */
+  --color-line: #e9ebed;       /* dividers */
+  --color-muted: #414d5c;      /* secondary nav text */
+
+  /* Chart series, in fixed order */
+  --color-chart-1: #688ae8;
+  --color-chart-2: #c33d69;
+  --color-chart-3: #2ea597;
+  --color-chart-4: #8456ce;
+  --color-chart-5: #e07941;
+  --color-chart-6: #3759ce;
+  --color-chart-7: #962249;
+}
+
+html { scrollbar-gutter: stable; }
+body {
+  @apply bg-white text-[15px] leading-relaxed text-ink antialiased dark:bg-squid-dark dark:text-slate-200;
+  font-family: var(--font-sans);
+}
 
 /* Sizes and counts line up in columns. */
 table td,
-[data-numeric] {
-  font-variant-numeric: tabular-nums;
-}
+[data-numeric] { font-variant-numeric: tabular-nums; }
+
+/* Compact density: tighter table rows. */
+html[data-density="compact"] .dc-table :where(td, th) { padding-top: 0.25rem; padding-bottom: 0.25rem; }
 
 /* Images fade in once loaded (see ImageWithPlaceholder). */
-.dc-fade-in {
-  transition: opacity 180ms ease-out;
-}
+.dc-fade-in { transition: opacity 180ms ease-out; }
 
-/* Similar photos: tiles in an even grid (gap, so wrapped rows line up). */
+/* Similar photos: tiles in an even grid. */
 .dc-photo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 20px 16px;
 }
-
-.dc-photo-button:focus-visible {
-  outline: 2px solid var(--dc-focus);
-  outline-offset: 2px;
-}
-
-.dc-photo-trash .dc-photo-button img {
-  opacity: 0.55 !important;
-  filter: grayscale(0.4);
-}
-
+.dc-photo-trash .dc-photo-button img { opacity: 0.55 !important; filter: grayscale(0.4); }
 .dc-photo-trash:hover .dc-photo-button img,
-.dc-photo-trash:focus-within .dc-photo-button img {
-  opacity: 1 !important;
-  filter: none;
-}
-
-/* Storage treemap tiles. */
-.dc-tile:focus-visible {
-  outline: 2px solid var(--dc-focus);
-  outline-offset: 1px;
-  z-index: 1;
-}
+.dc-photo-trash:focus-within .dc-photo-button img { opacity: 1 !important; filter: none; }
 
 /* The dashboard space bar fills once on first load. */
-.dc-grow {
-  transition: width 600ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 120ms linear;
-}
-
-.dc-legend-link:hover > span:nth-child(2) {
-  text-decoration: underline;
-}
+.dc-grow { transition: width 600ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 120ms linear; }
 
 @media (prefers-reduced-motion: reduce) {
-  .dc-fade-in,
-  .dc-grow {
-    transition: none;
-  }
+  .dc-fade-in, .dc-grow { transition: none; }
 }

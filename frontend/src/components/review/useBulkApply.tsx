@@ -1,4 +1,4 @@
-import Button from '@cloudscape-design/components/button'
+import { Button } from '../ui/core'
 import { useNavigate } from 'react-router-dom'
 import { useApplySuggestions, useRestoreSelections, type Selection } from '../../hooks/useDuplicates'
 import { useNotify } from '../../layouts/notifications'
@@ -47,7 +47,7 @@ export function useBulkApply(kind: 'exact' | 'near') {
                   >
                     Undo
                   </Button>
-                )}{' '}
+                )}
                 <Button onClick={() => navigate('/cleanup')}>Review in Cleanup</Button>
               </>
             ),

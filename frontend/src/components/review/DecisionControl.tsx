@@ -1,10 +1,9 @@
-import Box from '@cloudscape-design/components/box'
-import SegmentedControl from '@cloudscape-design/components/segmented-control'
-import SpaceBetween from '@cloudscape-design/components/space-between'
+import { Check, Trash2 } from 'lucide-react'
 import { useSelectAction } from '../../hooks/useDuplicates'
 import { useNotify } from '../../layouts/notifications'
 import { errorMessage } from '../../services/api'
 import type { DuplicateAction, DuplicateEntry } from '../../types/duplicate'
+import { cx, Segmented } from '../ui/core'
 
 /**
  * Keep | Trash for one file. Only a chosen "Trash" counts for Cleanup; a suggestion is shown as text until it's
@@ -20,27 +19,25 @@ export default function DecisionControl({ entry, name }: { entry: DuplicateEntry
       { entryId: entry.entry_id, action },
       {
         onError: (e) =>
-          notify({
-            id: `select-${entry.entry_id}`, type: 'error', header: `Couldn't save your choice for ${name}`,
-            content: errorMessage(e),
-          }),
+          notify({ id: `select-${entry.entry_id}`, type: 'error', header: `Couldn't save your choice for ${name}`, content: errorMessage(e) }),
       },
     )
 
   return (
-    <SpaceBetween size="xxs">
-      <SegmentedControl
+    <div className="flex flex-col gap-1">
+      <Segmented<DuplicateAction>
         label={`Decision for ${name}`}
-        selectedId={chosen}
-        onChange={(e) => set(e.detail.selectedId as DuplicateAction)}
+        value={chosen}
+        onChange={set}
+        size="xs"
         options={[
-          { id: 'keep', text: 'Keep', iconName: 'check' },
-          { id: 'trash', text: 'Trash', iconName: 'remove' },
+          { value: 'keep', label: 'Keep', icon: <Check size={12} />, tone: 'green' },
+          { value: 'trash', label: 'Trash', icon: <Trash2 size={12} />, tone: 'amber' },
         ]}
       />
-      <Box fontSize="body-s" color={chosen === 'trash' ? 'text-status-warning' : chosen === 'keep' ? 'text-status-success' : 'text-body-secondary'}>
+      <span className={cx('text-xs', chosen === 'trash' ? 'font-semibold text-amber-700 dark:text-amber-400' : chosen === 'keep' ? 'font-semibold text-emerald-700 dark:text-emerald-400' : 'text-slate-500')}>
         {chosen === 'trash' ? 'Marked for Trash' : chosen === 'keep' ? 'Keeping' : entry.recommended_action ? `Suggested: ${entry.recommended_action}` : 'No suggestion'}
-      </Box>
-    </SpaceBetween>
+      </span>
+    </div>
   )
 }

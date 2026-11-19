@@ -1,29 +1,21 @@
-import BarChart from '@cloudscape-design/components/bar-chart'
-import Box from '@cloudscape-design/components/box'
-import { colorChartsPaletteCategorical3 } from '@cloudscape-design/design-tokens'
 import type { TrashItem } from '../../types/trash'
 import { formatBytes } from '../../utils/format'
+import ColumnChart, { type Column } from './ColumnChart'
 
 const DAYS = 30
-
-interface Day {
-  x: string
-  y: number
-  files: string[]
-}
 
 function dayKey(d: Date) {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
 /** Bytes Drive will delete on each of the next 30 days (from the items deleting soonest). */
-function bucket(items: TrashItem[]): Day[] {
+function bucket(items: TrashItem[]): Column[] {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const days: Day[] = Array.from({ length: DAYS }, (_, i) => {
+  const days = Array.from({ length: DAYS }, (_, i) => {
     const d = new Date(today)
     d.setDate(d.getDate() + i)
-    return { x: dayKey(d), y: 0, files: [] }
+    return { x: dayKey(d), y: 0, files: [] as string[] }
   })
   for (const it of items) {
     if (!it.auto_deletes_at) continue
@@ -34,50 +26,27 @@ function bucket(items: TrashItem[]): Day[] {
     days[i].y += it.file.size ?? 0
     days[i].files.push(it.file.name)
   }
-  return days
+  return days.map((d) => ({
+    x: d.x,
+    y: d.y,
+    detail: d.files.length ? `${d.files.slice(0, 5).join(', ')}${d.files.length > 5 ? ` and ${d.files.length - 5} more` : ''}` : undefined,
+  }))
 }
 
 export default function TrashTimeline({
   items, status, onRetry,
 }: { items: TrashItem[] | undefined; status: 'loading' | 'finished' | 'error'; onRetry: () => void }) {
-  const days = bucket(items ?? [])
-  const any = days.some((d) => d.y > 0)
-  const byX = new Map(days.map((d) => [d.x, d]))
-
   return (
-    <BarChart
+    <ColumnChart
+      data={bucket(items ?? [])}
+      format={formatBytes}
+      status={status}
+      onRetry={onRetry}
       height={180}
-      hideFilter
-      hideLegend
-      statusType={status}
-      loadingText="Loading deletion dates"
-      errorText="Couldn't load deletion dates."
-      recoveryText="Retry"
-      onRecoveryClick={onRetry}
-      xScaleType="categorical"
-      xDomain={days.map((d) => d.x)}
-      series={any ? [{
-        title: 'Deleted by Drive', type: 'bar', color: colorChartsPaletteCategorical3,
-        data: days.map((d) => ({ x: d.x, y: d.y })), valueFormatter: (v) => formatBytes(v),
-      }] : []}
-      xTitle="Day"
-      yTitle="Space freed"
-      yTickFormatter={(v) => formatBytes(v)}
-      xTickFormatter={(x) => {
-        const i = days.findIndex((d) => d.x === x)
-        return i % 5 === 0 ? String(x) : ''
-      }}
-      detailPopoverFooter={(x) => {
-        const d = byX.get(String(x))
-        if (!d?.files.length) return null
-        return (
-          <Box fontSize="body-s" color="text-body-secondary">
-            {d.files.slice(0, 5).join(', ')}{d.files.length > 5 ? ` and ${d.files.length - 5} more` : ''}
-          </Box>
-        )
-      }}
+      tickEvery={5}
+      color="var(--color-chart-3)"
       ariaLabel="Space Drive frees by deleting Trash items, per day for the next 30 days"
-      empty={<Box textAlign="center" color="text-body-secondary">Nothing is due to be deleted in the next 30 days.</Box>}
+      empty="Nothing is due to be deleted in the next 30 days."
     />
   )
 }
