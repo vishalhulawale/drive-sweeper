@@ -13,7 +13,8 @@ export const useOperations = (running: boolean) =>
   useQuery({
     queryKey: ['cleanup-ops'],
     queryFn: cleanupService.operations,
-    refetchInterval: running ? 3000 : false,
+    // Keep polling while a run is active or any row is still pending, so the list never goes stale.
+    refetchInterval: (q) => (running || q.state.data?.some((o) => o.status === 'pending') ? 3000 : false),
   })
 
 function useInvalidating<A>(fn: (arg: A) => Promise<unknown>) {

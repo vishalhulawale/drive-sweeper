@@ -15,7 +15,8 @@ import TableContainer from '@mui/material/TableContainer'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
-import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 import {
   useCancelCleanup, useCleanupPlan, useCleanupStatus, useExecuteCleanup, useOperations, useRestore,
 } from '../hooks/useCleanup'
@@ -40,6 +41,19 @@ export default function Cleanup() {
   const execute = useExecuteCleanup()
   const restore = useRestore()
   const [confirming, setConfirming] = useState(false)
+
+  // Polling stops the moment the run ends, so the last poll can still show files as pending.
+  // Refresh everything once when a run finishes.
+  const qc = useQueryClient()
+  const wasRunning = useRef(false)
+  useEffect(() => {
+    if (wasRunning.current && !running) {
+      for (const key of ['cleanup-ops', 'cleanup-plan', 'dup-groups', 'dup-summary', 'files', 'summary']) {
+        qc.invalidateQueries({ queryKey: [key] })
+      }
+    }
+    wasRunning.current = running
+  }, [running, qc])
 
   const canTrash = auth.data?.can_trash ?? false
   const count = plan.data?.count ?? 0

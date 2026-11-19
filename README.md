@@ -131,6 +131,10 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Fix: Cleanup history showed a finished file as pending
+- Symptom: after moving two files to Trash, one showed completed and the other pending. The database and Drive were correct (both completed ~1.4 s apart, no run active); the page was stale. History only polled while a run was active, so the last poll caught the final file mid-flight and polling then stopped.
+- Fix: history keeps polling while any row is pending, and the page refreshes everything once when a run ends. Frontend only; no backend change.
+
 ### 2026-11-19 - Phase 4: storage analytics
 - `services/analytics_service.py` (read-only, from the local inventory): storage by type (images, videos, audio, documents, archives, other), storage by year created, largest files, largest folders (recursive, cycle-safe). Counts only files you own and that are not trashed; Trash is reported separately because Drive still counts it. API under `/api/analytics` (`overview`, `by-year`, `largest-files`, `largest-folders`).
 - Real Drive: about 106 GB in 23,239 files (images 55.6 GB, videos 40.4 GB, archives 5.8 GB, documents 3.9 GB), 9.5 GB sitting in Trash, ~270 MB reclaimable from duplicates. Responses take 0.1-0.2 s. About 226 files carry a bogus 1979/1980 created date (a Drive upload artifact), so they show up under those years.
