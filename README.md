@@ -140,6 +140,11 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - UI redesign phase 4b: organizer and scan history
+- **Organizer**: a selectable table (nothing pre-selected) sorted by confidence, with a High/Medium badge and score; select it to see why that folder was suggested. "Select high confidence", "Clear" and "Move N files" sit in the table header, and moving asks for confirmation first (files, folders, size). The result shows as a notification instead of a banner. Move history has status indicators and a per-row Undo with its own notice.
+- **Scan history**: a "Files over time" line chart of completed scans (hover for how long each took; times shown when scans are close together), and a table with status indicators and errors in words.
+- Not exercised in the browser: moving and undoing files.
+
 ### 2026-11-19 - UI redesign phase 4a: files and storage analytics
 - **Files**: a full-page Cloudscape table. Search, the Trash toggle, folder, sort and page all live in the URL, so back/forward and shared links work. Folder path as breadcrumbs above the table, "Organize this folder" in the page header, and a preferences panel (files per page, visible columns including Created, wrap long names), remembered in this browser.
 - **Storage analytics**: a summary row (storage used, Trash, duplicates and similar photos you can free, each linking to its page), then a **folder treemap** where area shows storage. Click a folder (or press Enter) to look inside, use the path or "Up one level" (or Backspace) to go back, and arrow keys to move between folders; hovering or focusing a folder shows its size, share and file count with "Show files". The grey tile is files sitting directly in the folder. A Table view gives the same numbers. The folder you're viewing is in the URL.
