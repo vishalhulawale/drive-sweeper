@@ -14,6 +14,7 @@ from typing import Any
 
 import google_auth_httplib2
 import httplib2
+from google.auth.exceptions import TransportError
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -27,6 +28,10 @@ LIST_FIELDS = f"nextPageToken,files({FILE_FIELDS})"
 PAGE_SIZE = 1000
 MAX_ATTEMPTS = 6
 _RETRY_REASONS = {"rateLimitExceeded", "userRateLimitExceeded", "backendError", "internalError"}
+# Network-level failures: socket timeouts, connection resets, DNS hiccups, token-refresh transport errors.
+# They say nothing about the request itself, so they are retried like a 503 and, if they persist,
+# reported as DriveError so every caller's existing per-file / per-page error handling applies.
+NETWORK_ERRORS = (OSError, httplib2.HttpLib2Error, TransportError)
 
 
 class DriveError(Exception):
@@ -78,6 +83,13 @@ class DriveClient:
                     raise DriveError(f"Drive API error {err.resp.status}: {_reason(err) or err}") from err
                 delay = min(60.0, 2 ** attempt) + random.uniform(0, 1)
                 log.warning("Drive API %s (attempt %d/%d), retrying in %.1fs", err.resp.status, attempt, MAX_ATTEMPTS, delay)
+                self._sleep(delay)
+            except NETWORK_ERRORS as err:
+                if attempt == MAX_ATTEMPTS:
+                    raise DriveError(f"Network error talking to Google Drive: {type(err).__name__}: {err}") from err
+                delay = min(60.0, 2 ** attempt) + random.uniform(0, 1)
+                log.warning("Drive network error %s (attempt %d/%d), retrying in %.1fs",
+                            type(err).__name__, attempt, MAX_ATTEMPTS, delay)
                 self._sleep(delay)
 
     def list_files_page(self, page_token: str | None = None) -> tuple[list[dict], str | None]:
@@ -157,7 +169,13 @@ class DriveClient:
             http = google_auth_httplib2.AuthorizedHttp(self._credentials, http=httplib2.Http(timeout=30))
             self._local.http = http
         for attempt in range(1, 4):
-            resp, content = http.request(url, "GET")
+            try:
+                resp, content = http.request(url, "GET")
+            except NETWORK_ERRORS as err:
+                if attempt == 3:
+                    raise DriveError(f"Thumbnail request failed: {type(err).__name__}: {err}") from err
+                self._sleep(2 ** attempt + random.uniform(0, 1))
+                continue
             if resp.status == 200:
                 return content
             if resp.status in (429, 500, 502, 503) and attempt < 3:

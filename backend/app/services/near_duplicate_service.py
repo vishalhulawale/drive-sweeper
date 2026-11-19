@@ -7,7 +7,6 @@ Nothing here changes anything in Drive.
 """
 import logging
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -75,18 +74,6 @@ def _hash_one(client, link: str | None) -> tuple[str | None, bool]:
         return None, False
 
 
-def _list_page(client, token, attempts: int = 4):
-    """List one page of images, retrying network hiccups (timeouts) instead of killing the job."""
-    for attempt in range(1, attempts + 1):
-        try:
-            return client.list_image_thumbnails_page(token)
-        except (OSError, httplib2.HttpLib2Error) as err:
-            if attempt == attempts:
-                raise
-            log.warning("Image listing failed (%s), retrying", err)
-            time.sleep(2 * attempt)
-
-
 def run_hashing(session_factory, client, account_id: int, cancel: threading.Event | None = None,
                 progress=None) -> dict:
     """Hash every image that still needs it. Safe to stop and restart at any time."""
@@ -94,11 +81,11 @@ def run_hashing(session_factory, client, account_id: int, cancel: threading.Even
     done = skipped = 0
     with session_factory() as db, ThreadPoolExecutor(FETCH_WORKERS) as pool, ThreadPoolExecutor(1) as lister:
         # List the next page while the current one is being downloaded and hashed.
-        next_page = lister.submit(_list_page, client, None)
+        next_page = lister.submit(client.list_image_thumbnails_page, None)
         while True:
             page, token = next_page.result()
             if token is not None and not cancel.is_set():
-                next_page = lister.submit(_list_page, client, token)
+                next_page = lister.submit(client.list_image_thumbnails_page, token)
             links = {f["id"]: f.get("thumbnailLink") for f in page}
             if links:
                 rows = db.execute(

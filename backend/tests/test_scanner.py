@@ -211,3 +211,36 @@ def test_client_signals_invalid_page_token():
     svc = _Service([http_error(400, "invalid")])
     with pytest.raises(InvalidPageToken):
         DriveClient(None, sleep=lambda _: None, service=svc).list_files_page("stale")
+
+
+def test_client_retries_network_errors_then_succeeds():
+    sleeps = []
+    svc = _Service([TimeoutError("The read operation timed out"), ConnectionResetError(),
+                    httplib2.ServerNotFoundError("dns"), {"files": [raw(1)]}])
+    files, nxt = DriveClient(None, sleep=sleeps.append, service=svc).list_files_page()
+    assert len(files) == 1 and nxt is None and len(sleeps) == 3
+
+
+def test_client_reports_a_persistent_network_error_as_drive_error():
+    svc = _Service([TimeoutError("timed out")] * 10)
+    with pytest.raises(DriveError, match="Network error"):
+        DriveClient(None, sleep=lambda _: None, service=svc).list_files_page()
+
+
+def test_thumbnail_fetch_retries_network_errors():
+    class FlakyHttp:
+        def __init__(self, outcomes):
+            self.outcomes = list(outcomes)
+
+        def request(self, url, method):
+            o = self.outcomes.pop(0)
+            if isinstance(o, Exception):
+                raise o
+            return o
+
+    client = DriveClient(None, sleep=lambda _: None, service=_Service([]))
+    client._local.http = FlakyHttp([TimeoutError(), (httplib2.Response({"status": 200}), b"img")])
+    assert client.fetch_thumbnail("https://x/thumb=s220") == b"img"
+    client._local.http = FlakyHttp([TimeoutError()] * 3)
+    with pytest.raises(DriveError, match="Thumbnail request failed"):
+        client.fetch_thumbnail("https://x/thumb=s220")

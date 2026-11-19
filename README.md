@@ -131,6 +131,12 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Fix: network timeouts crashed cleanup, sync, scans and moves
+- The Drive client retried only Google API errors (429/5xx). A socket timeout, connection reset or DNS hiccup went straight up and crashed whatever was running: one timeout during Cleanup marked every remaining queued file as failed, and sync, scans and organizer moves stopped. (This is what froze the similar-photos analysis at 1,739.)
+- `DriveClient` now retries network errors (`OSError`, `httplib2` errors, token-refresh transport errors) with the same backoff as a 503, up to 6 attempts, then raises `DriveError`. Callers already handle `DriveError` one file or page at a time, so Cleanup records that one file as failed and carries on. Thumbnail downloads get the same treatment. The extra listing retry in the similar-photos job is no longer needed and was removed.
+- Trashing is safe to retry. A retried move whose first attempt actually went through may be reported as failed although the file did move.
+- Live check: one listing page and 5 thumbnails on the real Drive work as before. Tests: 95 backend tests passing (3 new; all fail on the old code).
+
 ### 2026-11-19 - Fix: a file in two groups could be queued twice or trash another group's kept copy
 - A file can be in an exact-duplicate group and a similar-photos group at once (58 files on your Drive). The cleanup plan handled each group on its own, so such a file could be queued twice, and one group could keep a file that another group was trashing. Example: t1 is kept in the similar group (so x is trashed) while the exact group trashes t1, leaving no copy of x.
 - `cleanup_service.build_plan` now decides globally: a file marked Trash in any group never counts as a kept copy, every file is queued at most once, and a group whose remaining copies are all being trashed is blocked ("keep at least one").
