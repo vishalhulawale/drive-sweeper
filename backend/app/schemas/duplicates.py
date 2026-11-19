@@ -42,3 +42,6 @@ class SelectionIn(BaseModel):
 class ApplySuggestionsIn(BaseModel):
     group_ids: list[int] = Field(default_factory=list, max_length=100)
     all_groups: bool = False  # apply to every group instead of group_ids
+    # Only groups of this kind are touched, so the exact-duplicates page can never mark similar
+    # (visually alike but different) photos for Trash, and vice versa.
+    kind: Literal["exact", "near"] = "exact"

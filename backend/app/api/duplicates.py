@@ -107,7 +107,7 @@ def apply_suggestions(body: ApplySuggestionsIn, db: Session = Depends(get_db)):
     stmt = (
         select(DuplicateGroupFile)
         .join(DuplicateGroup, DuplicateGroup.id == DuplicateGroupFile.duplicate_group_id)
-        .where(DuplicateGroup.account_id == acc)
+        .where(DuplicateGroup.account_id == acc, DuplicateGroup.detection_type == body.kind)
     )
     if not body.all_groups:
         stmt = stmt.where(DuplicateGroup.id.in_(body.group_ids))

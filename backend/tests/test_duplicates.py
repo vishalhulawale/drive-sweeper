@@ -98,3 +98,47 @@ def test_api_endpoints(seeded, monkeypatch):
     assert by_id == {"a2": "keep", "a1": "trash", "a3": "trash"}  # oldest kept, newer trashed
     assert c.get(f"/api/duplicates/{g['id']}").status_code == 200
     assert c.get("/api/duplicates/999999").status_code == 404
+
+
+def test_apply_suggestions_never_crosses_kinds(seeded, monkeypatch):
+    """'All groups' on the exact page must not mark similar (near) photos for Trash, and vice versa."""
+    from app.main import app
+    from app.models import DuplicateGroup
+    from app.services import oauth_service
+
+    db, acc = seeded
+    monkeypatch.setattr(oauth_service, "get_account", lambda _db: acc)
+    dd.rebuild(db, acc.id)
+    f1, f2 = (db.scalar(select(DriveFile).where(DriveFile.account_id == acc.id, DriveFile.google_file_id == g))
+              for g in ("c1", "f1"))
+    near = DuplicateGroup(account_id=acc.id, detection_type="near", hash_algorithm="dhash", content_hash="ab",
+                          file_count=2, total_size=101, potential_savings=1)
+    db.add(near)
+    db.flush()
+    db.add_all([DuplicateGroupFile(duplicate_group_id=near.id, drive_file_id=f1.id, recommended_action="keep"),
+                DuplicateGroupFile(duplicate_group_id=near.id, drive_file_id=f2.id, recommended_action="trash")])
+    db.commit()
+
+    def selections(kind):
+        return [e.user_selected_action for e in db.scalars(
+            select(DuplicateGroupFile).join(DuplicateGroup, DuplicateGroup.id == DuplicateGroupFile.duplicate_group_id)
+            .where(DuplicateGroup.account_id == acc.id, DuplicateGroup.detection_type == kind)
+            .execution_options(populate_existing=True))]
+
+    c = TestClient(app)
+    assert c.post("/api/duplicates/apply-suggestions", json={"all_groups": True}).status_code == 200
+    assert "trash" in selections("exact")
+    assert selections("near") == [None, None]  # untouched
+
+    # A near group id sent with the default (exact) kind is ignored too.
+    assert c.post("/api/duplicates/apply-suggestions", json={"group_ids": [near.id]}).status_code == 200
+    assert selections("near") == [None, None]
+
+    # Explicitly asking for near groups works, and leaves exact choices alone.
+    for e in db.scalars(select(DuplicateGroupFile)):
+        e.user_selected_action = None
+    db.commit()
+    assert c.post("/api/duplicates/apply-suggestions", json={"group_ids": [near.id], "kind": "near"}).status_code == 200
+    assert sorted(selections("near")) == ["keep", "trash"]
+    assert set(selections("exact")) == {None}
+    assert c.post("/api/duplicates/apply-suggestions", json={"all_groups": True, "kind": "bogus"}).status_code == 422

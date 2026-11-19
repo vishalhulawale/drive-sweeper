@@ -11,11 +11,12 @@ export const duplicateService = {
       .get<DuplicatePage>('/api/duplicates', { params: { kind, sort, page, page_size: pageSize } })
       .then((r) => r.data),
   // Keep the oldest copy in each group and mark the newer copies for Trash (records choices only).
-  applySuggestions: (scope: number[] | 'all') =>
+  // Only groups of the given kind are changed (exact duplicates vs similar photos).
+  applySuggestions: (scope: number[] | 'all', kind: 'exact' | 'near' = 'exact') =>
     api
       .post<DuplicateSummary>(
         '/api/duplicates/apply-suggestions',
-        scope === 'all' ? { all_groups: true } : { group_ids: scope },
+        scope === 'all' ? { all_groups: true, kind } : { group_ids: scope, kind },
       )
       .then((r) => r.data),
   select: (entryId: number, action: DuplicateAction | null) =>

@@ -25,10 +25,10 @@ export function useDetectDuplicates() {
   })
 }
 
-export function useApplySuggestions() {
+export function useApplySuggestions(kind: 'exact' | 'near' = 'exact') {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: duplicateService.applySuggestions,
+    mutationFn: (scope: number[] | 'all') => duplicateService.applySuggestions(scope, kind),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['dup-groups'] })
       qc.invalidateQueries({ queryKey: ['cleanup-plan'] })

@@ -76,7 +76,7 @@ export default function SimilarPhotos() {
   const cancel = useCancelNear()
   const regroup = useRegroupNear()
   const groups = useDuplicateGroups('savings', page, PAGE_SIZE, 'near')
-  const apply = useApplySuggestions()
+  const apply = useApplySuggestions('near')
   const s = status.data
   const running = s?.running ?? false
   const done = s ? s.eligible - s.pending : 0
