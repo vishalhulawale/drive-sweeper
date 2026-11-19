@@ -141,3 +141,7 @@ docker-compose.yml
 - Built for a single user's own Drive. Shared drives are not scanned, and files shared with you are listed but never changed.
 - Similar-photo detection depends on Drive's preview images. Colour variants that look identical in a preview cannot be told apart.
 - Automatic sync runs only while the backend is running.
+
+## License
+
+[MIT](LICENSE)
