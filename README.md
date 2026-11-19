@@ -131,6 +131,11 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Fix: a full scan did not refresh duplicate groups
+- Sync, cleanup and restore regrouped duplicates afterwards, but a full scan did not, so exact and similar-photo groups stayed stale until you clicked **Find duplicates** (new copies missing, removed ones still listed until the next regroup).
+- `file_scanner.run_scan` now regroups both kinds once a scan completes (your keep/trash choices are kept). Failed and cancelled scans leave groups alone, and a regroup error is logged without marking a complete scan as failed.
+- Real data: regrouping takes about 5 s (263 exact groups, 4,462 files, 208 MB). Tests: 98 backend tests passing (2 new; the regroup test fails on the old code).
+
 ### 2026-11-19 - Fix: cleanup and move history vanished when files left Drive
 - `cleanup_operations.drive_file_id` was `ON DELETE CASCADE`. When a file is permanently deleted in Drive (Trash emptied, or the 30-day auto-delete), sync removes its row, and that deleted its trash/restore/move history too. This already happened: the history of the 2 files the app trashed is gone (the table was empty).
 - Migration `f7b2c5d9e3a1`: the link is now `ON DELETE SET NULL`, and each history row stores a snapshot of the file (Drive id, name, size, link), backfilled for existing rows. History lists keep such rows and mark them **Deleted from Drive** (`file_deleted` in the API). Restore and Undo on them are refused with a clear message (409) instead of crashing.

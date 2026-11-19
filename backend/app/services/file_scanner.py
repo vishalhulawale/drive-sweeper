@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ScanJob, SyncState
 from app.repositories import drive_file_repository as files_repo
+from app.services import duplicate_detector
 from app.services.google_drive import DriveClient, DriveError, InvalidPageToken
 
 log = logging.getLogger(__name__)
@@ -132,4 +133,14 @@ def run_scan(db: Session, client: DriveClient, job: ScanJob) -> ScanJob:
             job.completed_at = datetime.now(timezone.utc)
             db.commit()
         log.exception("Scan %s failed", job.id)
+        return job
+
+    # The inventory is now current, so regroup duplicates (exact and similar photos) the same way sync,
+    # cleanup and restore do; the user's keep/trash choices are kept. The scan itself already succeeded,
+    # so a failure here is logged rather than turning a complete scan into a failed one.
+    try:
+        duplicate_detector.refresh_all(db, job.account_id)
+    except Exception:
+        db.rollback()
+        log.exception("Scan %s: regrouping duplicates failed; use Find duplicates to retry", job.id)
     return job

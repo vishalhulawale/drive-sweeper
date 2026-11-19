@@ -244,3 +244,26 @@ def test_thumbnail_fetch_retries_network_errors():
     client._local.http = FlakyHttp([TimeoutError()] * 3)
     with pytest.raises(DriveError, match="Thumbnail request failed"):
         client.fetch_thumbnail("https://x/thumb=s220")
+
+
+def test_completed_scan_regroups_duplicates(db, account):
+    from app.models import DuplicateGroup
+
+    def groups():
+        return db.scalar(select(func.count()).select_from(DuplicateGroup).where(DuplicateGroup.account_id == account.id))
+
+    file_scanner.run_scan(db, FakeClient([[raw(1, md5Checksum="same"), raw(2, md5Checksum="same")]]),
+                          scans.create(db, account.id))
+    assert groups() == 1  # no separate "Find duplicates" click needed
+    # A later scan in which the copy is gone removes the stale group again.
+    file_scanner.run_scan(db, FakeClient([[raw(1, md5Checksum="same")]]), scans.create(db, account.id))
+    assert groups() == 0
+
+
+def test_failed_scan_leaves_groups_alone(db, account, monkeypatch):
+    from app.services import duplicate_detector
+
+    called = []
+    monkeypatch.setattr(duplicate_detector, "refresh_all", lambda *a: called.append(a))
+    job = file_scanner.run_scan(db, FakeClient([[raw(1)]], failures={1: DriveError("down")}), scans.create(db, account.id))
+    assert job.status == "failed" and called == []
