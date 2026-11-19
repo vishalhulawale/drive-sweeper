@@ -267,3 +267,18 @@ def test_failed_scan_leaves_groups_alone(db, account, monkeypatch):
     monkeypatch.setattr(duplicate_detector, "refresh_all", lambda *a: called.append(a))
     job = file_scanner.run_scan(db, FakeClient([[raw(1)]], failures={1: DriveError("down")}), scans.create(db, account.id))
     assert job.status == "failed" and called == []
+
+
+def test_thumbnail_link_lookup_uses_the_threads_own_connection():
+    class Http:
+        def __init__(self):
+            self.urls = []
+
+        def request(self, url, method):
+            self.urls.append(url)
+            return httplib2.Response({"status": 200}), b'{"thumbnailLink": "https://lh3/x=s220"}'
+
+    client = DriveClient(None, sleep=lambda _: None, service=_Service([]))
+    client._local.http = http = Http()
+    assert client.get_thumbnail_link("ab/c") == "https://lh3/x=s220"
+    assert http.urls == ["https://www.googleapis.com/drive/v3/files/ab%2Fc?fields=thumbnailLink"]

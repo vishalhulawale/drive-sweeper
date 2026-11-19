@@ -11,6 +11,7 @@ import threading
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import quote
 
 import google_auth_httplib2
 import httplib2
@@ -158,22 +159,33 @@ class DriveClient:
         result = self._execute(request, page_token=page_token)
         return result.get("files", []), result.get("nextPageToken")
 
-    def get_thumbnail_link(self, file_id: str) -> str | None:
-        return self._execute(self._service.files().get(fileId=file_id, fields="thumbnailLink")).get("thumbnailLink")
-
-    def fetch_thumbnail(self, thumbnail_link: str, size: int = 64) -> bytes:
-        """Download a small preview image (a few KB). The original file is never downloaded."""
-        url = re.sub(r"=s\d+(-c)?$", "", thumbnail_link) + f"=s{size}"
+    def _thread_http(self):
+        """This thread's own authorized connection (httplib2 connections must not be shared)."""
         http = getattr(self._local, "http", None)
         if http is None:
             http = google_auth_httplib2.AuthorizedHttp(self._credentials, http=httplib2.Http(timeout=30))
             self._local.http = http
+        return http
+
+    def get_thumbnail_link(self, file_id: str) -> str | None:
+        """Thread-safe (uses this thread's connection, not the shared API client), so many previews can
+        be looked up in parallel by the web server."""
+        url = f"https://www.googleapis.com/drive/v3/files/{quote(file_id, safe='')}?fields=thumbnailLink"
+        return json.loads(self._get(url, "Thumbnail link lookup")).get("thumbnailLink")
+
+    def fetch_thumbnail(self, thumbnail_link: str, size: int = 64) -> bytes:
+        """Download a small preview image (a few KB). The original file is never downloaded."""
+        url = re.sub(r"=s\d+(-c)?$", "", thumbnail_link) + f"=s{size}"
+        return self._get(url, "Thumbnail request")
+
+    def _get(self, url: str, what: str) -> bytes:
+        http = self._thread_http()
         for attempt in range(1, 4):
             try:
                 resp, content = http.request(url, "GET")
             except NETWORK_ERRORS as err:
                 if attempt == 3:
-                    raise DriveError(f"Thumbnail request failed: {type(err).__name__}: {err}") from err
+                    raise DriveError(f"{what} failed: {type(err).__name__}: {err}") from err
                 self._sleep(2 ** attempt + random.uniform(0, 1))
                 continue
             if resp.status == 200:
@@ -181,8 +193,8 @@ class DriveClient:
             if resp.status in (429, 500, 502, 503) and attempt < 3:
                 self._sleep(2 ** attempt + random.uniform(0, 1))
                 continue
-            raise DriveError(f"Thumbnail request failed with HTTP {resp.status}")
-        raise DriveError("Thumbnail request failed")
+            raise DriveError(f"{what} failed with HTTP {resp.status}")
+        raise DriveError(f"{what} failed")
 
     # ---- Trash ----
 

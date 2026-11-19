@@ -299,6 +299,8 @@ def test_api(env, monkeypatch):
     monkeypatch.setattr(oauth_service, "get_account", lambda _db: acc)
     monkeypatch.setattr(near_api.near_worker, "start", lambda account_id, client: nds.run_hashing(SessionLocal, client, account_id) and True)
     app.dependency_overrides[near_api.get_client] = lambda: drive
+    app.dependency_overrides[near_api.get_preview_client] = lambda: drive
+    near_api._previews.clear()
     try:
         c = TestClient(app)
         assert c.get("/api/near-duplicates/status").json()["pending"] == 6
@@ -311,6 +313,14 @@ def test_api(env, monkeypatch):
         assert c.post("/api/near-duplicates/detect").json()["groups"] == 1
         t = c.get("/api/near-duplicates/thumbnail/orig")
         assert t.status_code == 200 and t.headers["content-type"] == "image/jpeg"
+        drive.fetched.clear()
+        assert c.get("/api/near-duplicates/thumbnail/orig").content == t.content
+        assert drive.fetched == []                                   # second view served from memory
+        f = hashed(db, acc)["orig"]
+        f.md5_checksum = "m-orig-edited"                             # file changed: fetch a fresh preview
+        db.commit()
+        c.get("/api/near-duplicates/thumbnail/orig")
+        assert drive.fetched == ["orig"]
         assert c.get("/api/near-duplicates/thumbnail/nope").status_code == 404
         assert c.get("/api/near-duplicates/thumbnail/orig?size=5").status_code == 422
     finally:

@@ -140,6 +140,11 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Faster photo previews
+- Each preview request built a new Drive client, so it refreshed the OAuth token, opened new connections and looked up the link through the shared API client (not safe to use from several threads at once): about 2 s per preview, 18 s for a page of 25.
+- Previews now reuse one client per account (a reconnect creates a new one), so the token is refreshed about once an hour and a refreshed token is saved. The link lookup uses each server thread's own connection, and the last 2,000 previews (about 10 MB) are kept in memory, keyed by file and MD5 so an edited photo is fetched again.
+- Measured on your Drive with a page of 25 previews: 18.1 s before; 6.6 s on first view (about 1 s each); 0.84 s when viewed again. Tests: 103 backend tests passing (2 new).
+
 ### 2026-11-19 - README brought up to date
 - The similar-photos analysis has now run on the full Drive: 12,309 of 12,347 eligible photos hashed and only **38** unreadable. The earlier estimate that "roughly half of your photos cannot be compared" (from the first listing page, which included many images that are not eligible) was wrong. After the grouping fix there are 830 groups covering 2,431 photos (up to 7.2 GB).
 - Roadmap row for Phase 7 updated; thread counts in older entries corrected earlier today.
