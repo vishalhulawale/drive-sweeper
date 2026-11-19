@@ -15,7 +15,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import DriveFile, DuplicateGroup, DuplicateGroupFile
-from app.services import perceptual
+from app.services import duplicate_detector, perceptual
 from app.services.google_drive import DriveError
 
 log = logging.getLogger(__name__)
@@ -146,30 +146,27 @@ def detect(db: Session, account_id: int, max_distance: int = perceptual.DEFAULT_
     db.execute(delete(DuplicateGroup).where(DuplicateGroup.account_id == account_id,
                                             DuplicateGroup.detection_type == NEAR))
     files = {
-        f.id: f for f in db.scalars(
-            select(DriveFile).where(*_eligible(account_id), ~_needs_hash(), DriveFile.perceptual_hash.is_not(None))
+        r.id: r for r in db.execute(  # columns only: no full ORM objects for thousands of photos
+            select(DriveFile.id, DriveFile.perceptual_hash, DriveFile.size, DriveFile.created_time,
+                   DriveFile.md5_checksum)
+            .where(*_eligible(account_id), ~_needs_hash(), DriveFile.perceptual_hash.is_not(None))
         )
     }
     ranked = sorted(files.values(), key=_keeper_key)  # best copy first, so it becomes the group centre
     clusters = perceptual.cluster([(f.id, perceptual.from_hex(f.perceptual_hash)) for f in ranked], max_distance)
+    groups = []
     for ids in clusters:
         members = sorted((files[i] for i in ids), key=_keeper_key)
         if len({m.md5_checksum for m in members}) < 2:
             continue  # byte-identical copies are handled by exact duplicate detection
         keeper = members[0]
         total = sum(m.size or 0 for m in members)
-        group = DuplicateGroup(
-            account_id=account_id, detection_type=NEAR, hash_algorithm="dhash",
-            content_hash=keeper.perceptual_hash, file_count=len(members), total_size=total,
-            potential_savings=total - (keeper.size or 0),
-        )
-        db.add(group)
-        db.flush()
-        for m in members:
-            db.add(DuplicateGroupFile(
-                duplicate_group_id=group.id, drive_file_id=m.id,
-                recommended_action="keep" if m is keeper else "trash",
-                user_selected_action=old.get(m.id),
-            ))
+        groups.append((
+            dict(account_id=account_id, detection_type=NEAR, hash_algorithm="dhash",
+                 content_hash=keeper.perceptual_hash, file_count=len(members), total_size=total,
+                 potential_savings=total - (keeper.size or 0)),
+            [(m.id, "keep" if m.id == keeper.id else "trash") for m in members],
+        ))
+    duplicate_detector.save_groups(db, groups, old)
     db.commit()
     return status(db, account_id)

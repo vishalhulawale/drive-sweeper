@@ -140,6 +140,11 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Faster duplicate regrouping (runs after every sync with changes)
+- Regrouping ran after every scan, sync with changes, cleanup and restore, and took about 4.7 s: the exact rebuild ran one query and one flush per group, and the similar-photo regroup loaded 12,000 full rows, then flushed 830 groups and inserted 2,431 members one row at a time.
+- Now one query loads only the needed columns, and a new shared `duplicate_detector.save_groups` inserts all groups in one statement (ids returned in order) and all members in a second.
+- Measured on your data: exact 1.7 s to 0.45 s, similar photos 3.0 s to 0.93 s. Checked against the old code on your real groups: all 1,093 groups identical (members, display order, keepers, saved choices, totals). Tests: 109 backend tests passing.
+
 ### 2026-11-19 - Faster, all-or-nothing validation for organizer moves
 - Each move made 4 Drive calls (the destination folder and the file were each fetched twice), moves ran one at a time inside the web request (up to 200 x 4 calls), and an unknown file partway through a batch returned an error after earlier files had already moved.
 - `organizer_service.apply_moves` now validates the whole batch before changing anything. Each destination folder is checked live once per batch, each file is fetched once, and the moves run on 4 threads, with database work on the main thread as in Cleanup. A file listed twice in a batch is moved once. The safety checks are unchanged.

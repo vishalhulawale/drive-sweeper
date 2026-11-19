@@ -6,7 +6,7 @@ SHA-256 in such a set are left out as unverifiable. Sets with no SHA-256 at all 
 """
 from collections import defaultdict
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.orm import Session
 
 from app.models import DriveFile, DuplicateGroup, DuplicateGroupFile
@@ -48,21 +48,35 @@ def rebuild(db: Session, account_id: int) -> dict:
     db.execute(delete(DuplicateGroup).where(DuplicateGroup.account_id == account_id,
                                             DuplicateGroup.detection_type == EXACT))
 
-    keys = db.execute(
-        select(DriveFile.md5_checksum, DriveFile.size)
+    # One query for every candidate (files whose MD5 + size occurs more than once), columns only.
+    keys = (
+        select(DriveFile.md5_checksum.label("k_md5"), DriveFile.size.label("k_size"))
         .where(*_eligible(account_id))
         .group_by(DriveFile.md5_checksum, DriveFile.size)
         .having(func.count() > 1)
+        .subquery()
+    )
+    rows = db.execute(
+        select(DriveFile.id, DriveFile.md5_checksum, DriveFile.size, DriveFile.sha256_checksum,
+               DriveFile.created_time, DriveFile.name)
+        .join(keys, (keys.c.k_md5 == DriveFile.md5_checksum) & (keys.c.k_size == DriveFile.size))
+        .where(*_eligible(account_id))
     ).all()
+    candidates: dict[tuple, list] = defaultdict(list)
+    for r in rows:
+        candidates[(r.md5_checksum, r.size)].append(r)
 
-    for md5, size in keys:
-        candidates = list(
-            db.scalars(
-                select(DriveFile).where(*_eligible(account_id), DriveFile.md5_checksum == md5, DriveFile.size == size)
-            )
-        )
-        for algorithm, files in _verified_sets(candidates):
-            _add_group(db, account_id, md5, size, algorithm, files, old)
+    groups = []
+    for (md5, size), files in candidates.items():
+        for algorithm, members in _verified_sets(files):
+            members.sort(key=_keeper_key)
+            groups.append((
+                dict(account_id=account_id, detection_type=EXACT, hash_algorithm=algorithm, content_hash=md5,
+                     file_count=len(members), total_size=size * len(members),
+                     potential_savings=size * (len(members) - 1)),
+                [(m.id, "keep" if i == 0 else "trash") for i, m in enumerate(members)],
+            ))
+    save_groups(db, groups, old)
     db.commit()
     return summary(db, account_id)
 
@@ -76,29 +90,21 @@ def _verified_sets(files: list[DriveFile]) -> list[tuple[str, list[DriveFile]]]:
     return [("md5+sha256", fs) for sha, fs in by_sha.items() if sha is not None and len(fs) > 1]
 
 
-def _add_group(db: Session, account_id: int, md5: str, size: int, algorithm: str, files: list[DriveFile],
-               old: dict) -> None:
-    files.sort(key=_keeper_key)
-    group = DuplicateGroup(
-        account_id=account_id,
-        detection_type="exact",
-        hash_algorithm=algorithm,
-        content_hash=md5,
-        file_count=len(files),
-        total_size=size * len(files),
-        potential_savings=size * (len(files) - 1),
-    )
-    db.add(group)
-    db.flush()
-    for i, f in enumerate(files):
-        db.add(
-            DuplicateGroupFile(
-                duplicate_group_id=group.id,
-                drive_file_id=f.id,
-                recommended_action="keep" if i == 0 else "trash",
-                user_selected_action=old.get(f.id),
-            )
-        )
+def save_groups(db: Session, groups: list[tuple[dict, list[tuple[int, str]]]], old: dict[int, str]) -> None:
+    """Insert groups and their members in two statements (not one round trip per row).
+    groups: (group columns, [(drive_file_id, recommended_action), ...] in display order);
+    old: drive_file_id -> the user's earlier keep/trash choice, carried over."""
+    if not groups:
+        return
+    ids = db.scalars(
+        insert(DuplicateGroup).returning(DuplicateGroup.id, sort_by_parameter_order=True),
+        [g for g, _ in groups],
+    ).all()
+    db.execute(insert(DuplicateGroupFile), [
+        dict(duplicate_group_id=gid, drive_file_id=fid, recommended_action=action,
+             user_selected_action=old.get(fid))
+        for gid, (_, members) in zip(ids, groups) for fid, action in members
+    ])
 
 
 def refresh_all(db: Session, account_id: int) -> None:
