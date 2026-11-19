@@ -8,6 +8,7 @@ Moves are the only write: add the new parent, remove the old one. Nothing is ren
 """
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -166,56 +167,91 @@ def _finish(db: Session, op: CleanupOperation, status: str, error: str | None) -
     db.commit()
 
 
+MOVE_WORKERS = 4
+
+
 def apply_moves(db: Session, account_id: int, client, moves: list[dict]) -> list[CleanupOperation]:
-    """moves: [{"file_id": google id, "folder_id": google id}]. Every move is re-verified live first."""
+    """moves: [{"file_id": google id, "folder_id": google id}]. Every move is re-verified live first.
+
+    The whole batch is validated before anything changes. Each destination folder is checked live once,
+    each file is fetched once, and the Drive calls run on a few threads; database work stays here."""
     if len(moves) > MAX_MOVES:
         raise TooManyMoves(f"At most {MAX_MOVES} moves per run")
-    ops = []
+    resolved, seen = [], set()
     for m in moves:
+        if m["file_id"] in seen:
+            continue  # the same file twice in one batch: the first destination wins
+        seen.add(m["file_id"])
         f = db.scalar(select(DriveFile).where(
             DriveFile.account_id == account_id, DriveFile.google_file_id == m["file_id"]))
         dest = db.scalar(select(DriveFile).where(
             DriveFile.account_id == account_id, DriveFile.google_file_id == m["folder_id"]))
         if f is None or dest is None:
-            raise LookupError("Unknown file or folder")
+            raise LookupError("Unknown file or folder")  # nothing has been changed yet
+        resolved.append((f, dest))
+
+    ops = []
+    for f, _dest in resolved:
         op = CleanupOperation.for_file(
             f, account_id=account_id, operation_type="move", status="pending",
             previous_parent_ids=f.parent_ids or ([f.parent_folder_id] if f.parent_folder_id else []),
         )
         db.add(op)
-        db.commit()
         ops.append(op)
-        try:
-            problem = _check(client, f, dest)
+    db.commit()
+
+    with ThreadPoolExecutor(MOVE_WORKERS) as pool:
+        folders = {dest.google_file_id for _f, dest in resolved if dest.mime_type == FOLDER}
+        dest_problem = dict(zip(folders, pool.map(lambda gid: _check_destination(client, gid), folders)))
+        work = []
+        for op, (f, dest) in zip(ops, resolved):
+            problem = "Destination is not a folder" if dest.mime_type != FOLDER else dest_problem[dest.google_file_id]
             if problem:
                 _finish(db, op, "skipped", problem)
-                continue
-            live = client.get_file(f.google_file_id)
-            old_parents = live.get("parents") or []
-            client.move_file(f.google_file_id, dest.google_file_id, old_parents)
+            else:
+                work.append((op, f, (f.google_file_id, dest.google_file_id)))
+        results = list(pool.map(lambda w: _move_one(client, *w[2]), work))
+    for (op, f, (_gid, dest_gid)), (status, error, old_parents) in zip(work, results):
+        if status == "completed":
             op.previous_parent_ids = old_parents
-            f.parent_folder_id, f.parent_ids = dest.google_file_id, [dest.google_file_id]
-            _finish(db, op, "completed", None)
-        except DriveError as err:
-            log.warning("Move failed for %s: %s", f.google_file_id, err)
-            _finish(db, op, "failed", str(err))
+            f.parent_folder_id, f.parent_ids = dest_gid, [dest_gid]
+        _finish(db, op, status, error)
     return ops
 
 
-def _check(client, f: DriveFile, dest: DriveFile) -> str | None:
-    if dest.mime_type != FOLDER:
-        return "Destination is not a folder"
-    live_dest = client.get_file(dest.google_file_id)
-    if live_dest.get("trashed") or not live_dest.get("ownedByMe", False):
+def _check_destination(client, folder_id: str) -> str | None:
+    try:
+        live = client.get_file(folder_id)
+    except DriveError as err:
+        return f"Could not check the destination folder ({err})"
+    if live.get("trashed") or not live.get("ownedByMe", False):
         return "Destination folder is trashed or not yours"
-    live = client.get_file(f.google_file_id)
+    return None
+
+
+def _move_one(client, file_id: str, dest_id: str) -> tuple[str, str | None, list | None]:
+    """Runs on a worker thread: re-check the file live (one fetch), then move it."""
+    try:
+        live = client.get_file(file_id)
+        problem = _check_file(live, dest_id)
+        if problem:
+            return "skipped", problem, None
+        old_parents = live.get("parents") or []
+        client.move_file(file_id, dest_id, old_parents)
+        return "completed", None, old_parents
+    except DriveError as err:
+        log.warning("Move failed for %s: %s", file_id, err)
+        return "failed", str(err), None
+
+
+def _check_file(live: dict, dest_id: str) -> str | None:
     if live.get("trashed"):
         return "File is in Trash"
     if not live.get("ownedByMe", False):
         return "Not owned by you"
     if (live.get("capabilities") or {}).get("canMoveItemWithinDrive") is False:
         return "Drive does not allow moving this file"
-    if dest.google_file_id in (live.get("parents") or []):
+    if dest_id in (live.get("parents") or []):
         return "Already in that folder"
     return None
 

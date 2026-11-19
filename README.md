@@ -140,6 +140,11 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Faster, all-or-nothing validation for organizer moves
+- Each move made 4 Drive calls (the destination folder and the file were each fetched twice), moves ran one at a time inside the web request (up to 200 x 4 calls), and an unknown file partway through a batch returned an error after earlier files had already moved.
+- `organizer_service.apply_moves` now validates the whole batch before changing anything. Each destination folder is checked live once per batch, each file is fetched once, and the moves run on 4 threads, with database work on the main thread as in Cleanup. A file listed twice in a batch is moved once. The safety checks are unchanged.
+- Tests: 109 backend tests passing (3 new; all fail on the old code). Not tried on the real Drive, because that would move your files.
+
 ### 2026-11-19 - Faster cleanup runs (parallel Drive calls)
 - Cleanup checked and trashed one file at a time: 2-3 Drive calls of about 0.4 s each per file, so thousands of files took an hour or more.
 - `DriveClient` now builds a separate API client for each thread, since one httplib2 connection must not be shared between threads; this also makes the similar-photos listing prefetch safe. `cleanup_service.process` works in rounds of 40: each group's kept copy is verified once, then the live re-check and the move to Trash for each file run on 4 worker threads. All database work stays on the main thread, and workers see only plain ids and checksums. The safety checks are unchanged.

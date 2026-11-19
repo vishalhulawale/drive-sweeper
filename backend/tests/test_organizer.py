@@ -3,12 +3,12 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.cleanup import get_drive_client
 from app.core.database import SessionLocal
 from app.main import app
-from app.models import DriveAccount, DriveFile
+from app.models import CleanupOperation, DriveAccount, DriveFile
 from app.services import oauth_service
 from app.services import organizer_service as org
 from app.services.google_drive import DriveError
@@ -181,3 +181,59 @@ def test_api(env, monkeypatch):
         assert c.post("/api/organizer/apply", json={"moves": []}).status_code == 422
     finally:
         app.dependency_overrides.clear()
+
+
+def _loose_files(db, acc, drive, n):
+    rows = [f(f"N{i}", f"IMG_{i:04d}.jpg", "OLD", mod=d(2024, 3, 5)) for i in range(n)]
+    for r in rows:
+        r.account_id = acc.id
+        drive.add(r.google_file_id, ["OLD"])
+    db.add_all(rows)
+    db.commit()
+    return [{"file_id": r.google_file_id, "folder_id": "TRIP"} for r in rows]
+
+
+def test_batch_checks_the_folder_once_and_each_file_once(env):
+    db, acc, drive = env
+    moves = _loose_files(db, acc, drive, 12)
+    fetched = []
+    get = drive.get_file
+    drive.get_file = lambda gid: (fetched.append(gid), get(gid))[1]
+    ops = org.apply_moves(db, acc.id, drive, moves)
+    assert [o.status for o in ops] == ["completed"] * 12
+    assert fetched.count("TRIP") == 1                       # was once per move
+    assert sorted(g for g in fetched if g != "TRIP") == sorted(m["file_id"] for m in moves)   # once each (was twice)
+
+
+def test_unknown_file_in_a_batch_changes_nothing(env):
+    db, acc, drive = env
+    moves = _loose_files(db, acc, drive, 3)
+    before = db.scalar(select(func.count()).select_from(CleanupOperation).where(CleanupOperation.account_id == acc.id))
+    with pytest.raises(LookupError):
+        org.apply_moves(db, acc.id, drive, moves + [{"file_id": "nope", "folder_id": "TRIP"}])
+    assert drive.moves == []
+    assert db.scalar(select(func.count()).select_from(CleanupOperation)
+                     .where(CleanupOperation.account_id == acc.id)) == before
+
+
+def test_moves_run_in_parallel(env):
+    import threading
+    import time
+
+    db, acc, drive = env
+    moves = _loose_files(db, acc, drive, 20)
+    lock, state = threading.Lock(), {"active": 0, "peak": 0}
+    move = drive.move_file
+
+    def slow_move(*a, **kw):
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.02)
+        with lock:
+            state["active"] -= 1
+        return move(*a, **kw)
+
+    drive.move_file = slow_move
+    assert all(o.status == "completed" for o in org.apply_moves(db, acc.id, drive, moves))
+    assert state["peak"] > 1
