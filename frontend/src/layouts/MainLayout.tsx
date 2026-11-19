@@ -4,6 +4,7 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import HistoryIcon from '@mui/icons-material/History'
 import PieChartIcon from '@mui/icons-material/PieChart'
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
 import SettingsIcon from '@mui/icons-material/Settings'
 import AppBar from '@mui/material/AppBar'
 import Box from '@mui/material/Box'
@@ -25,6 +26,7 @@ const NAV: { to: string; label: string; icon: ReactNode }[] = [
   { to: '/files', label: 'Files', icon: <FolderOpenIcon /> },
   { to: '/analytics', label: 'Analytics', icon: <PieChartIcon /> },
   { to: '/duplicates', label: 'Duplicates', icon: <ContentCopyIcon /> },
+  { to: '/organizer', label: 'Organizer', icon: <AutoFixHighIcon /> },
   { to: '/cleanup', label: 'Cleanup', icon: <DeleteSweepIcon /> },
   { to: '/scans', label: 'Scan history', icon: <HistoryIcon /> },
   { to: '/settings', label: 'Settings', icon: <SettingsIcon /> },

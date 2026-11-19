@@ -22,7 +22,7 @@ export interface CleanupStatus {
 
 export interface Operation {
   id: number
-  operation_type: 'trash' | 'restore' | 'move'
+  operation_type: 'trash' | 'restore' | 'move' | 'unmove'
   status: string
   file_name: string
   file_size: number | null

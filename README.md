@@ -91,7 +91,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 2 | Exact duplicate detection and review UI | Done (detection, API and review UI built) |
 | 3 | Manual cleanup (Trash, history, restore) | Built and tested with a fake Drive; needs you to grant the Trash permission and try it on a small selection |
 | 4 | Storage analytics | Done (overview, by type, by year, largest folders and files) |
-| 5 | Smart file organizer | Not started |
+| 5 | Smart file organizer | Built and tested with a fake Drive; needs you to try a few moves on the real Drive |
 | 6 | Incremental sync (Changes API) | Not started |
 | 7 | Advanced features | Not started |
 
@@ -130,6 +130,14 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-19 - Phase 5: smart file organizer (suggest, move, undo)
+- Scope you chose: suggest and move loose files into your **existing** folders. `services/organizer_service.py` describes each folder (at least 5 direct files) by its file types, the span of its modification dates and its filename patterns, then matches a loose file to the folder it most resembles. Score = 35% same-type share + 40% date fit + 25% name-pattern fit; a file is only suggested at 60% or more (80% is shown as high confidence). Metadata only, deterministic, and every suggestion lists its reasons (hover the confidence chip).
+- "Loose" means an owned file at the top level (or directly inside a folder you pick via **Organize files in this folder** in the file explorer). Files inside shared-with-me folders are not loose, and only files and folders you own are used. Modification time is preferred over created time because of the bogus 1979 dates.
+- Moves: `POST /api/organizer/apply` (max 200 per run, needs the same full Drive permission as cleanup) re-checks each file and folder live (owned, not trashed, Drive allows moving, not already there), then adds the new parent and removes the old one. Nothing is renamed or deleted. Each move is a `cleanup_operations` row (`move`) with the previous parents; `POST /api/organizer/operations/{id}/undo` moves it back (`unmove`). `GET /api/organizer/suggestions` is read-only.
+- Real Drive result: 9 suggestions for the top level (1 high, 8 medium) in under a second. A first version suggested 48 because it treated files inside shared folders as loose; caught by comparing against a separate count of 17 loose files and fixed, with a regression test.
+- Frontend: Organizer page (suggestions table, nothing pre-selected, "Select high confidence", Move, move history with Undo), sidebar entry, and a link from the file explorer.
+- Tests: 58 backend tests passing (10 new). Frontend typecheck, lint and build clean. Not yet checked visually or run against the real Drive.
 
 ### 2026-11-19 - Fix: Cleanup history showed a finished file as pending
 - Symptom: after moving two files to Trash, one showed completed and the other pending. The database and Drive were correct (both completed ~1.4 s apart, no run active); the page was stale. History only polled while a run was active, so the last poll caught the final file mid-flight and polling then stopped.

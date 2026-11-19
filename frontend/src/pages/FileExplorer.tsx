@@ -21,7 +21,7 @@ import TableSortLabel from '@mui/material/TableSortLabel'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { useFiles, useFolderPath } from '../hooks/useFiles'
 import { errorMessage } from '../services/api'
 import type { FileQuery } from '../types/file'
@@ -119,6 +119,11 @@ export default function FileExplorer() {
             ),
           )}
         </Breadcrumbs>
+      )}
+      {!q && folder !== 'root' && (
+        <Link component={RouterLink} to={`/organizer?source=${encodeURIComponent(folder)}`} underline="hover" variant="body2">
+          Organize files in this folder
+        </Link>
       )}
 
       {files.isError && <Alert severity="error">{errorMessage(files.error)}</Alert>}

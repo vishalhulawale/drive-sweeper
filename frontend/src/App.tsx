@@ -9,6 +9,7 @@ import ConnectPage from './pages/ConnectPage'
 import Analytics from './pages/Analytics'
 import Cleanup from './pages/Cleanup'
 import Dashboard from './pages/Dashboard'
+import Organizer from './pages/Organizer'
 import Duplicates from './pages/Duplicates'
 import FileExplorer from './pages/FileExplorer'
 import ScanHistory from './pages/ScanHistory'
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="files" element={<FileExplorer />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="duplicates" element={<Duplicates />} />
+        <Route path="organizer" element={<Organizer />} />
         <Route path="cleanup" element={<Cleanup />} />
         <Route path="scans" element={<ScanHistory />} />
         <Route path="settings" element={<Settings />} />

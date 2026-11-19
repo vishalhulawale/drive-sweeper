@@ -1,7 +1,7 @@
 """Thin Google Drive API v3 client: metadata listing only, with retry/backoff.
 
 Kept separate from scanning and duplicate detection (principle 3). The only write it can do is
-set_trashed(), which moves a file to or from Trash. It never deletes anything permanently.
+set_trashed() (to or from Trash) and move_file() (change folder). It never deletes anything permanently.
 """
 import json
 import logging
@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 FILE_FIELDS = (
     "id,name,mimeType,size,md5Checksum,parents,createdTime,modifiedTime,"
-    "ownedByMe,webViewLink,trashed,shortcutDetails(targetId),capabilities(canTrash)"
+    "ownedByMe,webViewLink,trashed,shortcutDetails(targetId),capabilities(canTrash,canMoveItemWithinDrive)"
 )
 LIST_FIELDS = f"nextPageToken,files({FILE_FIELDS})"
 PAGE_SIZE = 1000
@@ -97,4 +97,12 @@ class DriveClient:
     def set_trashed(self, file_id: str, trashed: bool) -> dict:
         """Move a file to Trash (or restore it). Recoverable; never a permanent delete."""
         request = self._service.files().update(fileId=file_id, body={"trashed": trashed}, fields=FILE_FIELDS)
+        return self._execute(request)
+
+    def move_file(self, file_id: str, add_parent: str, remove_parents: list[str], extra_add: list[str] | None = None) -> dict:
+        """Change a file's folder(s). Never renames or deletes; the move can be reversed."""
+        add = ",".join([add_parent, *(extra_add or [])])
+        request = self._service.files().update(
+            fileId=file_id, addParents=add, removeParents=",".join(remove_parents) or None, fields=FILE_FIELDS
+        )
         return self._execute(request)
