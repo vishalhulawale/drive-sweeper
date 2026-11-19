@@ -8,6 +8,7 @@ Safety rules (all enforced here, not just in the UI):
   * every change is recorded in cleanup_operations so it can be undone.
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -113,42 +114,69 @@ def prepare(db: Session, account_id: int, expected_count: int) -> list[dict]:
     return jobs
 
 
+WORKERS = 4   # parallel Drive calls; Drive throttles sustained writes per user, and backoff handles that
+CHUNK = 40    # operations per round; cancelling takes effect between rounds
+
+
 def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[CleanupOperation]:
-    """Carry out queued operations one by one. Safe to cancel: cancelled operations are skipped."""
+    """Carry out queued operations. Safe to cancel: operations cancelled before their round are skipped.
+
+    Drive calls run on a small thread pool; all database work stays on this thread (the session is not
+    thread-safe), and workers only see plain values (ids, checksums), never ORM objects."""
     keeper_ok: dict[int, str | None] = {}  # group_id -> error message (None = keeper verified)
     ops: list[CleanupOperation] = []
 
-    for job in jobs:
-        op = db.get(CleanupOperation, job["op_id"])
-        db.refresh(op)
-        ops.append(op)
-        if op.status != "pending":  # cancelled while queued
-            continue
-        f = db.get(DriveFile, job["file_id"])
-        try:
-            gid = job["group_id"]
-            if gid not in keeper_ok:
-                keeper_ok[gid] = _check_keeper(client, db.get(DriveFile, job["keeper_id"]), job["keeper_md5"],
-                                              job.get("keeper_sha256"))
-            if keeper_ok[gid]:
-                _finish(db, op, "skipped", keeper_ok[gid])
-                continue
-            live = client.get_file(f.google_file_id)
-            problem = _check_file(live, job["md5"], job.get("sha256"))
-            if problem:
-                _finish(db, op, "skipped", problem)
-                continue
-            client.set_trashed(f.google_file_id, True)
-            f.trashed = True
-            f.trashed_time = _now()
-            op.previous_parent_ids = live.get("parents") or f.parent_ids
-            _finish(db, op, "completed", None)
-        except DriveError as err:
-            log.warning("Trash failed for %s: %s", f.google_file_id, err)
-            _finish(db, op, "failed", str(err))
+    with ThreadPoolExecutor(WORKERS) as pool:
+        for start in range(0, len(jobs), CHUNK):
+            live_jobs = []
+            for job in jobs[start:start + CHUNK]:
+                op = db.get(CleanupOperation, job["op_id"])
+                db.refresh(op)
+                ops.append(op)
+                if op.status == "pending":  # not cancelled while queued
+                    live_jobs.append((job, op))
+
+            # Verify each group's kept copy once, before any file of that group is trashed.
+            todo = {}
+            for job, _ in live_jobs:
+                gid = job["group_id"]
+                if gid not in keeper_ok and gid not in todo:
+                    keeper = db.get(DriveFile, job["keeper_id"])
+                    todo[gid] = (keeper.google_file_id, job["keeper_md5"], job.get("keeper_sha256"))
+            for gid, problem in zip(todo, pool.map(lambda args: _check_keeper(client, *args), todo.values())):
+                keeper_ok[gid] = problem
+
+            work = []
+            for job, op in live_jobs:
+                if keeper_ok[job["group_id"]]:
+                    _finish(db, op, "skipped", keeper_ok[job["group_id"]])
+                    continue
+                f = db.get(DriveFile, job["file_id"])
+                work.append((op, f, (f.google_file_id, job["md5"], job.get("sha256"))))
+            results = list(pool.map(lambda w: _trash_one(client, *w[2]), work))
+            for (op, f, _), (status, error, parents) in zip(work, results):
+                if status == "completed":
+                    f.trashed = True
+                    f.trashed_time = _now()
+                    op.previous_parent_ids = parents or f.parent_ids
+                _finish(db, op, status, error)
 
     duplicate_detector.refresh_all(db, account_id)
     return ops
+
+
+def _trash_one(client, google_file_id: str, md5: str, sha256: str | None) -> tuple[str, str | None, list | None]:
+    """Runs on a worker thread: re-check the file live, then move it to Trash."""
+    try:
+        live = client.get_file(google_file_id)
+        problem = _check_file(live, md5, sha256)
+        if problem:
+            return "skipped", problem, None
+        client.set_trashed(google_file_id, True)
+        return "completed", None, live.get("parents")
+    except DriveError as err:
+        log.warning("Trash failed for %s: %s", google_file_id, err)
+        return "failed", str(err), None
 
 
 def execute(db: Session, account_id: int, client, expected_count: int) -> list[CleanupOperation]:
@@ -203,9 +231,9 @@ def _changed(live: dict, md5: str, sha256: str | None) -> bool:
     return bool(sha256 and live.get("sha256Checksum") and live["sha256Checksum"] != sha256)
 
 
-def _check_keeper(client, keeper: DriveFile, md5: str, sha256: str | None = None) -> str | None:
+def _check_keeper(client, keeper_google_id: str, md5: str, sha256: str | None = None) -> str | None:
     try:
-        live = client.get_file(keeper.google_file_id)
+        live = client.get_file(keeper_google_id)
     except DriveError as err:
         return f"Could not verify the copy you are keeping ({err}); nothing was trashed in this group."
     if live.get("trashed") or _changed(live, md5, sha256):

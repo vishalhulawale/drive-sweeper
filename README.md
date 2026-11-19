@@ -140,6 +140,12 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Faster cleanup runs (parallel Drive calls)
+- Cleanup checked and trashed one file at a time: 2-3 Drive calls of about 0.4 s each per file, so thousands of files took an hour or more.
+- `DriveClient` now builds a separate API client for each thread, since one httplib2 connection must not be shared between threads; this also makes the similar-photos listing prefetch safe. `cleanup_service.process` works in rounds of 40: each group's kept copy is verified once, then the live re-check and the move to Trash for each file run on 4 worker threads. All database work stays on the main thread, and workers see only plain ids and checksums. The safety checks are unchanged.
+- Trade-off: **Cancel** now takes effect between rounds (at most 40 files later) instead of after the current file.
+- Measured on your Drive (read-only): 40 file look-ups took 7.0 s on 4 threads, against about 15.8 s one at a time. Drive throttles sustained writes per user, so trashing may gain less; throttled calls are retried with backoff. Tests: 106 backend tests passing (3 new; all fail on the old code).
+
 ### 2026-11-19 - Faster photo previews
 - Each preview request built a new Drive client, so it refreshed the OAuth token, opened new connections and looked up the link through the shared API client (not safe to use from several threads at once): about 2 s per preview, 18 s for a page of 25.
 - Previews now reuse one client per account (a reconnect creates a new one), so the token is refreshed about once an hour and a refreshed token is saved. The link lookup uses each server thread's own connection, and the last 2,000 previews (about 10 MB) are kept in memory, keyed by file and MD5 so an edited photo is fetched again.

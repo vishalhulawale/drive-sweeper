@@ -62,11 +62,22 @@ class DriveClient:
         self._sleep = sleep
         self._credentials = credentials
         self._local = threading.local()  # one HTTP connection per thread (httplib2 is not thread-safe)
-        if service is not None:  # injected in tests
-            self._service = service
-        else:
-            http = google_auth_httplib2.AuthorizedHttp(credentials, http=httplib2.Http(timeout=60))
-            self._service = build("drive", "v3", http=http, cache_discovery=False)
+        self._injected = service  # tests pass a fake service, shared by all threads
+        if service is None:
+            self._thread_service()  # build eagerly so a bad setup fails at construction, as before
+
+    @property
+    def _service(self):
+        """The API client for the calling thread. httplib2 connections are not thread-safe, so every
+        thread that uses this DriveClient (cleanup workers, the listing prefetch) gets its own."""
+        return self._injected if self._injected is not None else self._thread_service()
+
+    def _thread_service(self):
+        svc = getattr(self._local, "service", None)
+        if svc is None:
+            http = google_auth_httplib2.AuthorizedHttp(self._credentials, http=httplib2.Http(timeout=60))
+            svc = self._local.service = build("drive", "v3", http=http, cache_discovery=False)
+        return svc
 
     def _execute(self, request, *, page_token: str | None = None):
         for attempt in range(1, MAX_ATTEMPTS + 1):

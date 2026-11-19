@@ -280,3 +280,102 @@ def test_cleanup_skips_a_file_whose_sha256_changed(env):
     ops = {db.get(DriveFile, o.drive_file_id).google_file_id: o for o in cs.execute(db, acc.id, drive, 2)}
     assert ops["t1"].status == "skipped" and "changed" in ops["t1"].error_message
     assert ops["t2"].status == "completed"
+
+
+@pytest.fixture
+def many():
+    """One exact group: a keeper plus 60 copies, all marked Trash."""
+    db = SessionLocal()
+    acc = DriveAccount(google_user_id=f"test-{uuid.uuid4()}", email="t@example.com", access_token="x",
+                       granted_scopes=oauth_service.TRASH_SCOPE)
+    db.add(acc)
+    db.commit()
+    files = [mk("keep", "keep.png", 1)] + [mk(f"c{i}", f"copy{i}.png", 2) for i in range(60)]
+    for f in files:
+        f.account_id = acc.id
+    db.add_all(files)
+    db.commit()
+    dd.rebuild(db, acc.id)
+    select_action(db, acc, {f"c{i}" for i in range(60)})
+    yield db, acc, files
+    db.delete(acc)
+    db.commit()
+    db.close()
+
+
+class SlowDrive(FakeDrive):
+    """Each call takes a little while, like a real network round trip; records the peak concurrency."""
+
+    def __init__(self, files, delay=0.02, on_trash=None):
+        super().__init__(files)
+        self.delay, self.on_trash = delay, on_trash
+        self.active = self.peak = 0
+        self.lock = __import__("threading").Lock()
+
+    def _slow(self):
+        import time
+        with self.lock:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+        time.sleep(self.delay)
+        with self.lock:
+            self.active -= 1
+
+    def get_file(self, fid):
+        self._slow()
+        return super().get_file(fid)
+
+    def set_trashed(self, fid, trashed):
+        self._slow()
+        result = super().set_trashed(fid, trashed)
+        if self.on_trash:
+            self.on_trash(len(self.calls))
+        return result
+
+
+def test_cleanup_runs_drive_calls_in_parallel(many):
+    import time
+
+    db, acc, files = many
+    drive = SlowDrive(files)
+    t = time.perf_counter()
+    ops = cs.execute(db, acc.id, drive, 60)
+    elapsed = time.perf_counter() - t
+    assert [o.status for o in ops] == ["completed"] * 60
+    assert sorted(fid for fid, _ in drive.calls) == sorted(f"c{i}" for i in range(60))
+    assert drive.peak > 1
+    # one keeper check + 60 x (check + trash) = 121 calls x 20 ms = 2.4 s if done one at a time
+    assert elapsed < 1.6, elapsed
+
+
+def test_cancel_stops_rounds_that_have_not_started(many):
+    db, acc, files = many
+    cancelled = []
+
+    def cancel_once(n):
+        if n == 1 and not cancelled:  # during the first round, the user presses Cancel
+            with SessionLocal() as other:
+                cancelled.append(cs.cancel_pending(other, acc.id))
+
+    drive = SlowDrive(files, delay=0.001, on_trash=cancel_once)
+    ops = cs.execute(db, acc.id, drive, 60)
+    done = [o for o in ops if o.status == "completed"]
+    assert len(done) == cs.CHUNK                      # the running round finishes...
+    assert len(drive.calls) == cs.CHUNK
+    assert all(o.status == "cancelled" for o in ops if o not in done)   # ...the rest never starts
+
+
+def test_each_thread_gets_its_own_api_client(monkeypatch):
+    import threading
+
+    from app.services import google_drive
+
+    monkeypatch.setattr(google_drive, "build", lambda *a, **kw: object())
+    monkeypatch.setattr(google_drive.google_auth_httplib2, "AuthorizedHttp", lambda *a, **kw: None)
+    client = google_drive.DriveClient(credentials=None)
+    seen = []
+    t = threading.Thread(target=lambda: seen.append(client._service))
+    t.start()
+    t.join()
+    assert client._service is client._service      # stable within a thread
+    assert seen[0] is not client._service          # different in another thread
