@@ -140,6 +140,11 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - UI redesign phase 0: foundation (in progress)
+Following [docs/redesign-plan.md](docs/redesign-plan.md).
+- Added Cloudscape (`components`, `global-styles`, `collection-hooks`, `design-tokens`) and self-hosted Geist / Geist Mono fonts. MUI stays until each page is moved over.
+- `src/theme/`: Cloudscape token overrides (Geist as the font), display preferences (theme light/dark/system and density, **light by default**, kept in `localStorage` with a safe fallback), and an MUI theme that follows the same mode and font so unmoved pages match. Removed MUI's `CssBaseline`; Cloudscape's base styles are used instead.
+
 ### 2026-11-19 - Similar photos: stronger fingerprint (fixes the open finding)
 - The 64-bit greyscale fingerprint grouped images that only shared a layout: 54 different pages of one scanned form, 44 garment swatches that differ only in colour, and moving burst frames.
 - New fingerprint (`perceptual.py`, version 2), made from a 256 px preview instead of 64 px and about 1.2 KB per photo: a 256-bit difference hash to find candidates fast, then two checks against the suggested keeper. The **structure** check needs a 32x32 greyscale correlation of 0.99 or more. The **colour** check compares 8x8 cells (90th-percentile cell difference of 6 or less) and the colour bias, the mean signed shift per channel (3 or less), which catches a small but uniform change of shade while ignoring the edge blur from resizing. Flat images never match. Migration `a8c3e6f0b4d2` (wider hash column, `phash_detail`, `phash_version`); photos with an older version are fingerprinted again automatically.

@@ -1,0 +1,7 @@
+/* App-wide additions on top of Cloudscape's global styles. Body colours are set from design tokens in main.tsx. */
+
+/* Sizes and counts line up in columns. */
+table td,
+[data-numeric] {
+  font-variant-numeric: tabular-nums;
+}
