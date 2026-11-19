@@ -102,7 +102,7 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 | 4 | Storage analytics | Done (overview, by type, by year, largest folders and files) |
 | 5 | Smart file organizer | Built and tested with a fake Drive; needs you to try a few moves on the real Drive |
 | 6 | Incremental sync (Changes API) | Done and verified on the real Drive |
-| 7 | Advanced features | Done (automatic sync, similar photos, Trash overview). The similar-photos analysis has not been run on the full Drive yet |
+| 7 | Advanced features | Done (automatic sync, similar photos, Trash overview). Similar-photos analysis has run on the full Drive; review the large groups by eye (see the open finding below) |
 
 ### Phase 1 milestones
 
@@ -139,6 +139,10 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 ## Progress Log
 
 Newest first.
+
+### 2026-11-19 - README brought up to date
+- The similar-photos analysis has now run on the full Drive: 12,309 of 12,347 eligible photos hashed and only **38** unreadable. The earlier estimate that "roughly half of your photos cannot be compared" (from the first listing page, which included many images that are not eligible) was wrong. After the grouping fix there are 830 groups covering 2,431 photos (up to 7.2 GB).
+- Roadmap row for Phase 7 updated; thread counts in older entries corrected earlier today.
 
 ### 2026-11-19 - Docker Compose runs the whole app (product decision, was database only)
 - The plan says "Deployment: Docker Compose", but the compose file only had PostgreSQL. Added `backend/Dockerfile` (Python 3.12 slim; runs `alembic upgrade head`, then uvicorn), `frontend/Dockerfile` (Node build, then nginx with a single-page-app fallback and long caching for hashed assets), `.dockerignore` files (so `.env` never goes into an image), and `backend` + `frontend` services with a database health check. See **Run everything in Docker** above.
