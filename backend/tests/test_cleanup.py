@@ -267,3 +267,16 @@ def test_history_survives_when_the_file_is_permanently_deleted(env, monkeypatch)
         assert c.post(f"/api/cleanup/operations/{op.id}/restore").status_code == 409
     finally:
         app.dependency_overrides.clear()
+
+
+def test_cleanup_skips_a_file_whose_sha256_changed(env):
+    db, acc, drive = env
+    for f in db.scalars(select(DriveFile).where(DriveFile.account_id == acc.id)):
+        f.sha256_checksum = "s1"
+        drive.live[f.google_file_id]["sha256Checksum"] = "s1"
+    db.commit()
+    select_action(db, acc, {"t1", "t2"})
+    drive.live["t1"]["sha256Checksum"] = "s-other"  # same MD5, different SHA-256 in Drive
+    ops = {db.get(DriveFile, o.drive_file_id).google_file_id: o for o in cs.execute(db, acc.id, drive, 2)}
+    assert ops["t1"].status == "skipped" and "changed" in ops["t1"].error_message
+    assert ops["t2"].status == "completed"

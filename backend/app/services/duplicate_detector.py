@@ -1,4 +1,11 @@
-"""Exact duplicate detection from Drive metadata (MD5 + size). Read-only: never touches Drive."""
+"""Exact duplicate detection from Drive metadata. Read-only: never touches Drive.
+
+Candidates share MD5 and size; SHA-256 (also reported by Drive) then verifies them, because MD5 alone
+can collide. A same-MD5 set whose SHA-256 values disagree is split by SHA-256, and files with no
+SHA-256 in such a set are left out as unverifiable. Sets with no SHA-256 at all fall back to MD5.
+"""
+from collections import defaultdict
+
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -49,34 +56,49 @@ def rebuild(db: Session, account_id: int) -> dict:
     ).all()
 
     for md5, size in keys:
-        files = list(
+        candidates = list(
             db.scalars(
                 select(DriveFile).where(*_eligible(account_id), DriveFile.md5_checksum == md5, DriveFile.size == size)
             )
         )
-        files.sort(key=_keeper_key)
-        group = DuplicateGroup(
-            account_id=account_id,
-            detection_type="exact",
-            hash_algorithm="md5",
-            content_hash=md5,
-            file_count=len(files),
-            total_size=size * len(files),
-            potential_savings=size * (len(files) - 1),
-        )
-        db.add(group)
-        db.flush()
-        for i, f in enumerate(files):
-            db.add(
-                DuplicateGroupFile(
-                    duplicate_group_id=group.id,
-                    drive_file_id=f.id,
-                    recommended_action="keep" if i == 0 else "trash",
-                    user_selected_action=old.get(f.id),
-                )
-            )
+        for algorithm, files in _verified_sets(candidates):
+            _add_group(db, account_id, md5, size, algorithm, files, old)
     db.commit()
     return summary(db, account_id)
+
+
+def _verified_sets(files: list[DriveFile]) -> list[tuple[str, list[DriveFile]]]:
+    by_sha: dict[str | None, list[DriveFile]] = defaultdict(list)
+    for f in files:
+        by_sha[f.sha256_checksum].append(f)
+    if set(by_sha) == {None}:
+        return [("md5", files)]  # nothing to verify against; MD5 + size as before
+    return [("md5+sha256", fs) for sha, fs in by_sha.items() if sha is not None and len(fs) > 1]
+
+
+def _add_group(db: Session, account_id: int, md5: str, size: int, algorithm: str, files: list[DriveFile],
+               old: dict) -> None:
+    files.sort(key=_keeper_key)
+    group = DuplicateGroup(
+        account_id=account_id,
+        detection_type="exact",
+        hash_algorithm=algorithm,
+        content_hash=md5,
+        file_count=len(files),
+        total_size=size * len(files),
+        potential_savings=size * (len(files) - 1),
+    )
+    db.add(group)
+    db.flush()
+    for i, f in enumerate(files):
+        db.add(
+            DuplicateGroupFile(
+                duplicate_group_id=group.id,
+                drive_file_id=f.id,
+                recommended_action="keep" if i == 0 else "trash",
+                user_selected_action=old.get(f.id),
+            )
+        )
 
 
 def refresh_all(db: Session, account_id: int) -> None:

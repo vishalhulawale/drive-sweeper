@@ -107,6 +107,7 @@ def prepare(db: Session, account_id: int, expected_count: int) -> list[dict]:
         jobs.append({
             "op_id": op.id, "file_id": f.id, "keeper_id": item["keeper"].id,
             "md5": f.md5_checksum, "keeper_md5": item["keeper"].md5_checksum, "group_id": item["group_id"],
+            "sha256": f.sha256_checksum, "keeper_sha256": item["keeper"].sha256_checksum,
         })
     db.commit()
     return jobs
@@ -127,12 +128,13 @@ def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[Clea
         try:
             gid = job["group_id"]
             if gid not in keeper_ok:
-                keeper_ok[gid] = _check_keeper(client, db.get(DriveFile, job["keeper_id"]), job["keeper_md5"])
+                keeper_ok[gid] = _check_keeper(client, db.get(DriveFile, job["keeper_id"]), job["keeper_md5"],
+                                              job.get("keeper_sha256"))
             if keeper_ok[gid]:
                 _finish(db, op, "skipped", keeper_ok[gid])
                 continue
             live = client.get_file(f.google_file_id)
-            problem = _check_file(live, job["md5"])
+            problem = _check_file(live, job["md5"], job.get("sha256"))
             if problem:
                 _finish(db, op, "skipped", problem)
                 continue
@@ -194,22 +196,29 @@ def mark_orphans_interrupted(db: Session) -> int:
     return len(ops)
 
 
-def _check_keeper(client, keeper: DriveFile, md5: str) -> str | None:
+def _changed(live: dict, md5: str, sha256: str | None) -> bool:
+    """Contents differ from what was scanned. SHA-256 is compared whenever both sides have one."""
+    if live.get("md5Checksum") != md5:
+        return True
+    return bool(sha256 and live.get("sha256Checksum") and live["sha256Checksum"] != sha256)
+
+
+def _check_keeper(client, keeper: DriveFile, md5: str, sha256: str | None = None) -> str | None:
     try:
         live = client.get_file(keeper.google_file_id)
     except DriveError as err:
         return f"Could not verify the copy you are keeping ({err}); nothing was trashed in this group."
-    if live.get("trashed") or live.get("md5Checksum") != md5:
+    if live.get("trashed") or _changed(live, md5, sha256):
         return "The copy you are keeping is no longer available or has changed; nothing was trashed in this group."
     return None
 
 
-def _check_file(live: dict, md5: str) -> str | None:
+def _check_file(live: dict, md5: str, sha256: str | None = None) -> str | None:
     if live.get("trashed"):
         return "Already in Trash"
     if not live.get("ownedByMe", False):
         return "Not owned by you"
-    if live.get("md5Checksum") != md5:
+    if _changed(live, md5, sha256):
         return "File changed since the scan; rescan first"
     if (live.get("capabilities") or {}).get("canTrash") is False:
         return "Drive does not allow trashing this file"

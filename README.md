@@ -131,6 +131,12 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - SHA-256 verification of exact duplicates (product decision, was missing)
+- The plan says duplicates are found by MD5 and verified with SHA-256, but `sha256_checksum` was never filled. Drive reports `sha256Checksum` as ordinary metadata (checked: all 940 files with an MD5 on one listing page have it), so no file content is downloaded.
+- Scans and sync now store it (Drive's value always wins, like MD5). Exact groups need MD5 + size **and** SHA-256: a same-MD5 set whose SHA-256 values differ is split, files without a SHA-256 in such a set are left out, and sets with no SHA-256 at all fall back to MD5 (`hash_algorithm` is `md5+sha256` or `md5`). Cleanup also re-checks SHA-256 live, so a file whose SHA-256 changed is skipped.
+- Real Drive: full scan of 25,225 files in 99 s; 23,750 of 23,906 files with an MD5 have a SHA-256; all 263 exact groups are verified as `md5+sha256`. No MD5 collisions were found, so the groups and the 208 MB of savings are unchanged.
+- Tests: 102 backend tests passing (3 new, all fail on the old code; the old "SHA-256 is never overwritten" test now checks that Drive's value is used).
+
 ### 2026-11-19 - Fix: two syncs (or a sync and a scan) could run at once
 - A manual **Sync now** did not check whether an automatic sync was already running, and a full scan could start in the middle of a sync. Both syncs would start from the same bookmark, apply the same changes twice and race on which bookmark was stored last. That was harmless (applying changes is idempotent) but wasteful.
 - `sync_service` now holds a lock while a sync runs. A second sync gets a 409 ("A sync is already running"), the scheduler quietly tries again on a later tick, and starting or resuming a full scan during a sync gets a 409. Sync already refused to run during a scan.

@@ -38,6 +38,7 @@ def parse_file(raw: dict, scanned_at: datetime) -> dict:
         "mime_type": mime,
         "size": int(raw["size"]) if raw.get("size") is not None else None,
         "md5_checksum": raw.get("md5Checksum"),
+        "sha256_checksum": raw.get("sha256Checksum"),
         "parent_folder_id": parents[0] if parents else None,
         "parent_ids": parents,
         "created_time": _parse_time(raw.get("createdTime")),

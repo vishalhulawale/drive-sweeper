@@ -142,3 +142,27 @@ def test_apply_suggestions_never_crosses_kinds(seeded, monkeypatch):
     assert sorted(selections("near")) == ["keep", "trash"]
     assert set(selections("exact")) == {None}
     assert c.post("/api/duplicates/apply-suggestions", json={"all_groups": True, "kind": "bogus"}).status_code == 422
+
+
+def test_sha256_verifies_md5_groups(seeded):
+    """Same MD5 + size is only a candidate; differing SHA-256 means different contents (an MD5 collision)."""
+    db, acc = seeded
+    files = {f.google_file_id: f for f in db.scalars(select(DriveFile).where(DriveFile.account_id == acc.id))}
+    files["a1"].sha256_checksum = files["a2"].sha256_checksum = "s-same"
+    files["a3"].sha256_checksum = "s-collision"
+    db.commit()
+    assert dd.rebuild(db, acc.id) == {"groups": 1, "duplicate_files": 2, "potential_savings": 100}
+    from app.models import DuplicateGroup
+    g = db.scalar(select(DuplicateGroup).where(DuplicateGroup.account_id == acc.id))
+    assert g.hash_algorithm == "md5+sha256"
+    members = set(db.scalars(select(DriveFile.google_file_id).join(
+        DuplicateGroupFile, DuplicateGroupFile.drive_file_id == DriveFile.id).where(
+        DuplicateGroupFile.duplicate_group_id == g.id)))
+    assert members == {"a1", "a2"}
+
+    files["a3"].sha256_checksum = None  # can't be verified against the others: left out
+    db.commit()
+    assert dd.rebuild(db, acc.id)["duplicate_files"] == 2
+    files["a1"].sha256_checksum = files["a2"].sha256_checksum = None  # no SHA-256 anywhere: MD5 as before
+    db.commit()
+    assert dd.rebuild(db, acc.id)["duplicate_files"] == 3

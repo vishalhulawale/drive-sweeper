@@ -153,14 +153,14 @@ def test_cancelled_scan_stops_and_keeps_status(db, account):
     assert job.status == "cancelled" and count(db, account) == 1
 
 
-def test_sha256_not_overwritten_by_rescan(db, account):
-    file_scanner.run_scan(db, FakeClient([[raw(1)]]), scans.create(db, account.id))
+def test_sha256_comes_from_drive_and_follows_content_changes(db, account):
+    file_scanner.run_scan(db, FakeClient([[raw(1, sha256Checksum="s-old")]]), scans.create(db, account.id))
     row = db.scalar(select(DriveFile).where(DriveFile.account_id == account.id))
-    row.sha256_checksum = "abc"
-    db.commit()
-    file_scanner.run_scan(db, FakeClient([[raw(1, name="renamed")]]), scans.create(db, account.id))
+    assert row.sha256_checksum == "s-old"
+    file_scanner.run_scan(db, FakeClient([[raw(1, md5Checksum="new", sha256Checksum="s-new")]]),
+                          scans.create(db, account.id))
     db.refresh(row)
-    assert row.sha256_checksum == "abc" and row.name == "renamed"
+    assert (row.md5_checksum, row.sha256_checksum) == ("new", "s-new")
 
 
 # --- DriveClient retry behaviour -------------------------------------------------------------

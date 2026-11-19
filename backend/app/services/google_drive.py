@@ -21,7 +21,7 @@ from googleapiclient.errors import HttpError
 log = logging.getLogger(__name__)
 
 FILE_FIELDS = (
-    "id,name,mimeType,size,md5Checksum,parents,createdTime,modifiedTime,"
+    "id,name,mimeType,size,md5Checksum,sha256Checksum,parents,createdTime,modifiedTime,"
     "ownedByMe,webViewLink,trashed,trashedTime,shortcutDetails(targetId),capabilities(canTrash,canMoveItemWithinDrive)"
 )
 LIST_FIELDS = f"nextPageToken,files({FILE_FIELDS})"

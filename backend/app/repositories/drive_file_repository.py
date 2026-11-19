@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.models import DriveFile
 
 _UPDATE_COLUMNS = [
-    "name", "mime_type", "size", "md5_checksum", "parent_folder_id", "parent_ids",
+    "name", "mime_type", "size", "md5_checksum", "sha256_checksum", "parent_folder_id", "parent_ids",
     "created_time", "modified_time", "web_view_link", "trashed", "is_owned_by_user",
     "is_shortcut", "shortcut_target_id", "trashed_time", "last_scanned_at",
 ]
@@ -17,7 +17,7 @@ def upsert_files(db: Session, account_id: int, rows: list[dict]) -> None:
     """Idempotent insert-or-update keyed by (account_id, google_file_id)."""
     if not rows:
         return
-    # sha256_checksum is deliberately not overwritten: it is computed locally, not by the scanner.
+    # sha256_checksum comes from Drive (sha256Checksum) like md5, so Drive's current value always wins.
     values = [{**r, "account_id": account_id} for r in rows]
     stmt = insert(DriveFile).values(values)
     stmt = stmt.on_conflict_do_update(
