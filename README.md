@@ -144,6 +144,7 @@ Newest first.
 Following [docs/redesign-plan.md](docs/redesign-plan.md).
 - Added Cloudscape (`components`, `global-styles`, `collection-hooks`, `design-tokens`) and self-hosted Geist / Geist Mono fonts. MUI stays until each page is moved over.
 - `src/theme/`: Cloudscape token overrides (Geist as the font), display preferences (theme light/dark/system and density, **light by default**, kept in `localStorage` with a safe fallback), and an MUI theme that follows the same mode and font so unmoved pages match. Removed MUI's `CssBaseline`; Cloudscape's base styles are used instead.
+- New favicon: a teal mark of two stacked file sheets with a check (`favicon.svg` with a dark-mode variant, `favicon.ico` 16/32/48, `apple-touch-icon.png`). Tab title is now "DriveClean" with a description and `theme-color`. Removed the unused Vite template assets.
 
 ### 2026-11-19 - Similar photos: stronger fingerprint (fixes the open finding)
 - The 64-bit greyscale fingerprint grouped images that only shared a layout: 54 different pages of one scanned form, 44 garment swatches that differ only in colour, and moving burst frames.
