@@ -7,6 +7,7 @@ Each page of changes and the bookmark that follows it are saved in ONE transacti
 sync resumes from the last saved page and never skips changes. Applying a change is idempotent.
 """
 import logging
+import threading
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, select
@@ -28,6 +29,19 @@ class SyncUnavailable(Exception):
 
 class ScanActive(Exception):
     pass
+
+
+class SyncBusy(Exception):
+    """Another sync (manual or automatic) is already running in this server."""
+
+
+# One sync at a time per server process. Two syncs starting from the same bookmark would apply the same
+# changes twice and race on which bookmark is stored last. A full scan also checks this before starting.
+_running = threading.Lock()
+
+
+def is_running() -> bool:
+    return _running.locked()
 
 
 def get_state(db: Session, account_id: int) -> SyncState | None:
@@ -60,6 +74,15 @@ def update_settings(db: Session, account_id: int, enabled: bool, minutes: int) -
 
 
 def sync(db: Session, account_id: int, client) -> dict:
+    if not _running.acquire(blocking=False):
+        raise SyncBusy("A sync is already running; it usually takes a few seconds")
+    try:
+        return _sync(db, account_id, client)
+    finally:
+        _running.release()
+
+
+def _sync(db: Session, account_id: int, client) -> dict:
     if scan_repository.get_active(db, account_id):
         raise ScanActive("A full scan is running; quick sync is not needed until it finishes")
     state = get_state(db, account_id)

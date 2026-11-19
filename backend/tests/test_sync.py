@@ -280,3 +280,44 @@ def test_reset_stuck_and_settings_api(env, monkeypatch):
     assert r.status_code == 200 and r.json()["auto_sync_enabled"] is False and r.json()["auto_sync_minutes"] == 30
     assert c.put("/api/sync/settings", json={"enabled": True, "minutes": 1}).status_code == 422
     assert c.get("/api/sync/status").json()["auto_sync_minutes"] == 30
+
+
+def test_only_one_sync_at_a_time_and_scans_wait_for_it(env, clean_attempts, monkeypatch):
+    import threading
+
+    db, acc = env
+    monkeypatch.setattr(oauth_service, "get_account", lambda _db: acc)
+    monkeypatch.setattr(oauth_service, "credentials_for", lambda a: None)
+    started, release = threading.Event(), threading.Event()
+
+    class SlowFeed(FakeChanges):
+        def list_changes_page(self, token):
+            started.set()
+            release.wait(5)
+            return super().list_changes_page(token)
+
+    slow = SlowFeed([[{"fileId": "a", "file": raw("a", name="first.png")}]])
+    first = threading.Thread(target=lambda: sync_service.sync(SessionLocal(), acc.id, slow))
+    first.start()
+    try:
+        assert started.wait(5)
+        with pytest.raises(sync_service.SyncBusy):                    # a second sync is refused...
+            sync_service.sync(db, acc.id, FakeChanges([[]]))
+        st = sync_service.get_state(db, acc.id)
+        st.last_sync_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+        assert acc.id not in auto_sync.run_due(client_factory=lambda creds: FakeChanges([[]]))  # skipped
+        db.expire_all()
+        assert sync_service.get_state(db, acc.id).last_error is None   # ...the scheduler just tries later
+        app.dependency_overrides[get_client] = lambda: FakeChanges([[]])
+        c = TestClient(app)
+        assert c.post("/api/sync").status_code == 409
+        r = c.post("/api/scans")
+        assert r.status_code == 409 and "sync" in r.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+        release.set()
+        first.join(5)
+    db.expire_all()
+    assert names(db, acc)["a"].name == "first.png"
+    assert not sync_service.is_running()

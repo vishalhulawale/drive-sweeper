@@ -60,7 +60,7 @@ def run_sync(db: Session = Depends(get_db), client=Depends(get_client)):
     """Pull the changes made in Drive since the last scan or sync. Usually takes a few seconds."""
     try:
         return sync_service.sync(db, _account(db).id, client)
-    except sync_service.ScanActive as err:
+    except (sync_service.ScanActive, sync_service.SyncBusy) as err:
         raise HTTPException(409, str(err))
     except sync_service.SyncUnavailable as err:
         raise HTTPException(409, str(err))

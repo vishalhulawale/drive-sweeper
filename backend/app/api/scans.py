@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.repositories import scan_repository as scans
 from app.schemas.scans import ScanOut
-from app.services import oauth_service
+from app.services import oauth_service, sync_service
 from app.workers import scan_worker
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
@@ -29,6 +29,8 @@ def start_scan(db: Session = Depends(get_db)):
     account = _account(db)
     if scans.get_active(db, account.id):
         raise HTTPException(409, "A scan is already in progress")
+    if sync_service.is_running():
+        raise HTTPException(409, "A quick sync is running; try again in a few seconds")
     job = scans.create(db, account.id)
     scan_worker.start(job.id)
     return job
@@ -52,6 +54,8 @@ def resume_scan(scan_id: int, db: Session = Depends(get_db)):
         raise HTTPException(409, f"Scan is {job.status}; only failed, cancelled or interrupted scans can resume")
     if scans.get_active(db, account.id):
         raise HTTPException(409, "A scan is already in progress")
+    if sync_service.is_running():
+        raise HTTPException(409, "A quick sync is running; try again in a few seconds")
     job.status = "pending"
     db.commit()
     scan_worker.start(job.id)

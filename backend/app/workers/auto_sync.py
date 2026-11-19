@@ -69,8 +69,8 @@ def _sync_one(db: Session, account_id: int, client_factory) -> None:
         creds = oauth_service.credentials_for(account)
         sync_service.sync(db, account_id, client_factory(creds))
         oauth_service.persist_credentials(db, account, creds)
-    except sync_service.ScanActive:
-        return  # a full scan is running; try again on a later tick without recording an error
+    except (sync_service.ScanActive, sync_service.SyncBusy):
+        return  # a full scan or a manual sync is running; try again on a later tick, no error recorded
     except sync_service.SyncUnavailable as err:
         error = str(err)
     except Exception as err:  # keep the scheduler alive whatever Drive or the network does

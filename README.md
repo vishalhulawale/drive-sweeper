@@ -131,6 +131,11 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Fix: two syncs (or a sync and a scan) could run at once
+- A manual **Sync now** did not check whether an automatic sync was already running, and a full scan could start in the middle of a sync. Both syncs would start from the same bookmark, apply the same changes twice and race on which bookmark was stored last. That was harmless (applying changes is idempotent) but wasteful.
+- `sync_service` now holds a lock while a sync runs. A second sync gets a 409 ("A sync is already running"), the scheduler quietly tries again on a later tick, and starting or resuming a full scan during a sync gets a 409. Sync already refused to run during a scan.
+- Tests: 100 backend tests passing (1 new).
+
 ### 2026-11-19 - Fix: similar-photo groups stayed stale after a crashed analysis
 - The photo analysis regrouped only after a clean finish. When a run crashed, the hashes it had already saved were ignored until a later clean run (this is why the page showed 14 groups for so long).
 - `run_hashing` now regroups in a `finally` step, so a crashed or stopped run still turns every saved hash into groups. A failure while regrouping is logged and does not hide the original error.
