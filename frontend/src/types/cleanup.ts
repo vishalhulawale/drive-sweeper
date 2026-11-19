@@ -30,4 +30,6 @@ export interface Operation {
   created_at: string
   completed_at: string | null
   error_message: string | null
+  /** The file was later permanently deleted in Drive; the row is history only. */
+  file_deleted: boolean
 }

@@ -176,7 +176,8 @@ export default function Cleanup() {
                 <TableCell align="right">{formatBytes(o.file_size)}</TableCell>
                 <TableCell><Chip size="small" label={o.status} color={STATUS_COLOR[o.status] ?? 'default'} /></TableCell>
                 <TableCell align="right">
-                  {o.operation_type === 'trash' && o.status === 'completed' && (
+                  {o.file_deleted && <Typography variant="caption" color="text.secondary">Deleted from Drive</Typography>}
+                  {o.operation_type === 'trash' && o.status === 'completed' && !o.file_deleted && (
                     <Button size="small" disabled={!canTrash || restore.isPending} onClick={() => restore.mutate(o.id)}>
                       Restore
                     </Button>

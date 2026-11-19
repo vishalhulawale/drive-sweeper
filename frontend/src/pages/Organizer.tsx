@@ -177,7 +177,8 @@ export default function Organizer() {
                 </TableCell>
                 <TableCell><Chip size="small" label={o.status} color={STATUS_COLOR[o.status] ?? 'default'} /></TableCell>
                 <TableCell align="right">
-                  {o.operation_type === 'move' && o.status === 'completed' && (
+                  {o.file_deleted && <Typography variant="caption" color="text.secondary">Deleted from Drive</Typography>}
+                  {o.operation_type === 'move' && o.status === 'completed' && !o.file_deleted && (
                     <Button size="small" disabled={!canMove || undo.isPending} onClick={() => undo.mutate(o.id)}>Undo</Button>
                   )}
                 </TableCell>

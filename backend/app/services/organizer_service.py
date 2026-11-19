@@ -178,8 +178,8 @@ def apply_moves(db: Session, account_id: int, client, moves: list[dict]) -> list
             DriveFile.account_id == account_id, DriveFile.google_file_id == m["folder_id"]))
         if f is None or dest is None:
             raise LookupError("Unknown file or folder")
-        op = CleanupOperation(
-            account_id=account_id, drive_file_id=f.id, operation_type="move", status="pending",
+        op = CleanupOperation.for_file(
+            f, account_id=account_id, operation_type="move", status="pending",
             previous_parent_ids=f.parent_ids or ([f.parent_folder_id] if f.parent_folder_id else []),
         )
         db.add(op)
@@ -226,12 +226,14 @@ def undo(db: Session, account_id: int, client, op_id: int) -> CleanupOperation:
         raise LookupError("Operation not found")
     if original.operation_type != "move" or original.status != "completed":
         raise ValueError("Only completed moves can be undone")
-    f = db.get(DriveFile, original.drive_file_id)
+    f = db.get(DriveFile, original.drive_file_id) if original.drive_file_id else None
+    if f is None:
+        raise ValueError("This file is no longer in Drive (it was permanently deleted)")
     previous = original.previous_parent_ids or []
     if not previous:
         raise ValueError("No previous location was recorded for this move")
-    op = CleanupOperation(account_id=account_id, drive_file_id=f.id, operation_type="unmove",
-                          status="pending", previous_parent_ids=[f.parent_folder_id])
+    op = CleanupOperation.for_file(f, account_id=account_id, operation_type="unmove",
+                                   status="pending", previous_parent_ids=[f.parent_folder_id])
     db.add(op)
     db.commit()
     try:
@@ -249,7 +251,7 @@ def undo(db: Session, account_id: int, client, op_id: int) -> CleanupOperation:
 def history(db: Session, account_id: int, limit: int = 200):
     return db.execute(
         select(CleanupOperation, DriveFile)
-        .join(DriveFile, DriveFile.id == CleanupOperation.drive_file_id)
+        .outerjoin(DriveFile, DriveFile.id == CleanupOperation.drive_file_id)  # keep rows whose file is gone
         .where(CleanupOperation.account_id == account_id, CleanupOperation.operation_type.in_(["move", "unmove"]))
         .order_by(CleanupOperation.id.desc())
         .limit(limit)

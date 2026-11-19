@@ -38,6 +38,7 @@ class OperationOut(BaseModel):
     created_at: datetime
     completed_at: datetime | None
     error_message: str | None
+    file_deleted: bool = False  # the file was later permanently deleted in Drive; history only
 
 
 class CleanupStatus(BaseModel):

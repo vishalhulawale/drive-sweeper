@@ -131,6 +131,12 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Fix: cleanup and move history vanished when files left Drive
+- `cleanup_operations.drive_file_id` was `ON DELETE CASCADE`. When a file is permanently deleted in Drive (Trash emptied, or the 30-day auto-delete), sync removes its row, and that deleted its trash/restore/move history too. This already happened: the history of the 2 files the app trashed is gone (the table was empty).
+- Migration `f7b2c5d9e3a1`: the link is now `ON DELETE SET NULL`, and each history row stores a snapshot of the file (Drive id, name, size, link), backfilled for existing rows. History lists keep such rows and mark them **Deleted from Drive** (`file_deleted` in the API). Restore and Undo on them are refused with a clear message (409) instead of crashing.
+- Tests: 96 backend tests passing (1 new; on the old code and schema the history row is deleted). Migration checked up, down and up again. Frontend typecheck and lint clean.
+- **Restart the backend** to pick up this change (and the earlier fixes today); the migration is already applied.
+
 ### 2026-11-19 - Fix: network timeouts crashed cleanup, sync, scans and moves
 - The Drive client retried only Google API errors (429/5xx). A socket timeout, connection reset or DNS hiccup went straight up and crashed whatever was running: one timeout during Cleanup marked every remaining queued file as failed, and sync, scans and organizer moves stopped. (This is what froze the similar-photos analysis at 1,739.)
 - `DriveClient` now retries network errors (`OSError`, `httplib2` errors, token-refresh transport errors) with the same backoff as a 503, up to 6 attempts, then raises `DriveError`. Callers already handle `DriveError` one file or page at a time, so Cleanup records that one file as failed and carries on. Thumbnail downloads get the same treatment. The extra listing retry in the similar-photos job is no longer needed and was removed.

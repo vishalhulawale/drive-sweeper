@@ -98,8 +98,8 @@ def prepare(db: Session, account_id: int, expected_count: int) -> list[dict]:
     jobs = []
     for item in plan["items"]:
         f: DriveFile = item["file"]
-        op = CleanupOperation(
-            account_id=account_id, drive_file_id=f.id, operation_type="trash", status="pending",
+        op = CleanupOperation.for_file(
+            f, account_id=account_id, operation_type="trash", status="pending",
             previous_parent_ids=f.parent_ids,
         )
         db.add(op)
@@ -229,10 +229,10 @@ def restore(db: Session, account_id: int, client, op_id: int) -> CleanupOperatio
         raise LookupError("Operation not found")
     if original.operation_type != "trash" or original.status != "completed":
         raise ValueError("Only completed trash operations can be restored")
-    f = db.get(DriveFile, original.drive_file_id)
-    op = CleanupOperation(
-        account_id=account_id, drive_file_id=original.drive_file_id, operation_type="restore", status="pending"
-    )
+    f = db.get(DriveFile, original.drive_file_id) if original.drive_file_id else None
+    if f is None:
+        raise ValueError("This file is no longer in Drive (it was permanently deleted, e.g. Trash was emptied)")
+    op = CleanupOperation.for_file(f, account_id=account_id, operation_type="restore", status="pending")
     db.add(op)
     db.commit()
     try:
@@ -251,7 +251,7 @@ def restore(db: Session, account_id: int, client, op_id: int) -> CleanupOperatio
 def history(db: Session, account_id: int, limit: int = 200):
     return db.execute(
         select(CleanupOperation, DriveFile)
-        .join(DriveFile, DriveFile.id == CleanupOperation.drive_file_id)
+        .outerjoin(DriveFile, DriveFile.id == CleanupOperation.drive_file_id)  # keep rows whose file is gone
         .where(CleanupOperation.account_id == account_id)
         .order_by(CleanupOperation.id.desc())
         .limit(limit)

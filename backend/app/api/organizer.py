@@ -48,7 +48,7 @@ def apply(body: ApplyIn, db: Session = Depends(get_db), client=Depends(get_drive
         raise HTTPException(400, str(err))
     except LookupError as err:
         raise HTTPException(404, str(err))
-    return [_op_out(op, db.get(DriveFile, op.drive_file_id)) for op in ops]
+    return [_op_out(op, db.get(DriveFile, op.drive_file_id) if op.drive_file_id else None) for op in ops]
 
 
 @router.get("/history", response_model=list[OperationOut])
@@ -64,4 +64,4 @@ def undo(op_id: int, db: Session = Depends(get_db), client=Depends(get_drive_cli
         raise HTTPException(404, str(err))
     except ValueError as err:
         raise HTTPException(409, str(err))
-    return _op_out(op, db.get(DriveFile, op.drive_file_id))
+    return _op_out(op, db.get(DriveFile, op.drive_file_id) if op.drive_file_id else None)

@@ -234,3 +234,36 @@ def test_file_in_exact_and_near_group_is_queued_once_and_never_used_as_a_keeper(
     drive.live["x"] = {**drive.live["t1"], "id": "x", "md5Checksum": "m9"}
     cs.execute(db, acc.id, drive, expected_count=2)
     assert sorted(fid for fid, _ in drive.calls) == ["t1", "t2"]
+
+
+def test_history_survives_when_the_file_is_permanently_deleted(env, monkeypatch):
+    """Trash emptied in Drive -> sync deletes the file row. The history row must stay, readable."""
+    from app.services import sync_service
+
+    db, acc, drive = env
+    select_action(db, acc, {"t1"})
+    op = cs.execute(db, acc.id, drive, 1)[0]
+    t1 = db.get(DriveFile, op.drive_file_id)
+    gid, name, link = t1.google_file_id, t1.name, t1.web_view_link
+    sync_service._apply(db, acc.id, [{"fileId": gid, "removed": True}])  # what sync does after Trash is emptied
+    db.commit()
+    db.expire_all()
+
+    assert db.get(DriveFile, t1.id) is None
+    kept = db.get(CleanupOperation, op.id)
+    assert kept is not None and kept.drive_file_id is None
+    assert (kept.google_file_id, kept.file_name, kept.file_size) == (gid, name, 100)
+    rows = cs.history(db, acc.id)
+    assert [(o.id, f) for o, f in rows] == [(op.id, None)]
+    with pytest.raises(ValueError, match="no longer in Drive"):
+        cs.restore(db, acc.id, drive, op.id)
+
+    monkeypatch.setattr(oauth_service, "get_account", lambda _db: acc)
+    app.dependency_overrides[get_drive_client] = lambda: drive
+    try:
+        c = TestClient(app)
+        [row] = c.get("/api/cleanup/operations").json()
+        assert row["file_name"] == name and row["file_deleted"] is True and row["web_view_link"] == link
+        assert c.post(f"/api/cleanup/operations/{op.id}/restore").status_code == 409
+    finally:
+        app.dependency_overrides.clear()

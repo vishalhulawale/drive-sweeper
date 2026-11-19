@@ -29,10 +29,14 @@ def get_drive_client(db: Session = Depends(get_db)) -> DriveClient:
 
 
 def _op_out(op, f) -> OperationOut:
+    """f is the file's current row, or None once it has left Drive; then the snapshot on op is used."""
     return OperationOut(
-        id=op.id, operation_type=op.operation_type, status=op.status, file_name=f.name, file_size=f.size,
-        web_view_link=f.web_view_link, created_at=op.created_at, completed_at=op.completed_at,
-        error_message=op.error_message,
+        id=op.id, operation_type=op.operation_type, status=op.status,
+        file_name=f.name if f else (op.file_name or "(deleted file)"),
+        file_size=f.size if f else op.file_size,
+        web_view_link=f.web_view_link if f else op.web_view_link,
+        created_at=op.created_at, completed_at=op.completed_at, error_message=op.error_message,
+        file_deleted=f is None,
     )
 
 
@@ -90,4 +94,4 @@ def restore(op_id: int, db: Session = Depends(get_db), client=Depends(get_drive_
         raise HTTPException(404, str(err))
     except ValueError as err:
         raise HTTPException(409, str(err))
-    return _op_out(op, db.get(DriveFile, op.drive_file_id))
+    return _op_out(op, db.get(DriveFile, op.drive_file_id) if op.drive_file_id else None)
