@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.files import FileOut
 
@@ -36,3 +36,7 @@ class DuplicateGroupPage(BaseModel):
 
 class SelectionIn(BaseModel):
     action: Literal["keep", "trash"] | None
+
+
+class ApplySuggestionsIn(BaseModel):
+    group_ids: list[int] = Field(min_length=1, max_length=100)

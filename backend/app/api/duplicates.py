@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models import DriveFile, DuplicateGroup, DuplicateGroupFile
 from app.schemas.duplicates import (
-    DuplicateFileOut, DuplicateGroupOut, DuplicateGroupPage, DuplicateSummary, SelectionIn,
+    ApplySuggestionsIn, DuplicateFileOut, DuplicateGroupOut, DuplicateGroupPage, DuplicateSummary, SelectionIn,
 )
 from app.schemas.files import FileOut
 from app.services import duplicate_detector, oauth_service
@@ -91,6 +91,23 @@ def list_groups(
     )
     items = _groups_out(db, groups) if groups else []
     return DuplicateGroupPage(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.post("/apply-suggestions", response_model=DuplicateSummary)
+def apply_suggestions(body: ApplySuggestionsIn, db: Session = Depends(get_db)):
+    """Record the suggested keep/trash action as the user's choice for the given groups.
+
+    Records choices only; nothing is changed in Drive."""
+    acc = _account_id(db)
+    entries = db.scalars(
+        select(DuplicateGroupFile)
+        .join(DuplicateGroup, DuplicateGroup.id == DuplicateGroupFile.duplicate_group_id)
+        .where(DuplicateGroup.account_id == acc, DuplicateGroup.id.in_(body.group_ids))
+    )
+    for e in entries:
+        e.user_selected_action = e.recommended_action
+    db.commit()
+    return duplicate_detector.summary(db, acc)
 
 
 @router.get("/{group_id}", response_model=DuplicateGroupOut)

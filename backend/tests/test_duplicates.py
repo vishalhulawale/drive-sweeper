@@ -88,5 +88,8 @@ def test_api_endpoints(seeded, monkeypatch):
     r = c.put(f"/api/duplicates/entries/{entry}/selection", json={"action": "trash"})
     assert r.json()["user_selected_action"] == "trash"
     assert c.put(f"/api/duplicates/entries/{entry}/selection", json={"action": "delete"}).status_code == 422
+    assert c.post("/api/duplicates/apply-suggestions", json={"group_ids": [g["id"]]}).status_code == 200
+    after = c.get(f"/api/duplicates/{g['id']}").json()["files"]
+    assert all(f["user_selected_action"] == f["recommended_action"] for f in after)
     assert c.get(f"/api/duplicates/{g['id']}").status_code == 200
     assert c.get("/api/duplicates/999999").status_code == 404

@@ -10,6 +10,10 @@ export const duplicateService = {
     api
       .get<DuplicatePage>('/api/duplicates', { params: { sort, page, page_size: pageSize } })
       .then((r) => r.data),
+  applySuggestions: (groupIds: number[]) =>
+    api
+      .post<DuplicateSummary>('/api/duplicates/apply-suggestions', { group_ids: groupIds })
+      .then((r) => r.data),
   select: (entryId: number, action: DuplicateAction | null) =>
     api
       .put<DuplicateEntry>(`/api/duplicates/entries/${entryId}/selection`, { action })

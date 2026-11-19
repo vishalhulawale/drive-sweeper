@@ -25,11 +25,25 @@ export function useDetectDuplicates() {
   })
 }
 
+export function useApplySuggestions() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: duplicateService.applySuggestions,
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['dup-groups'] })
+      qc.invalidateQueries({ queryKey: ['cleanup-plan'] })
+    },
+  })
+}
+
 export function useSelectAction() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (v: { entryId: number; action: DuplicateAction | null }) =>
       duplicateService.select(v.entryId, v.action),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['dup-groups'] }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['dup-groups'] })
+      qc.invalidateQueries({ queryKey: ['cleanup-plan'] })
+    },
   })
 }

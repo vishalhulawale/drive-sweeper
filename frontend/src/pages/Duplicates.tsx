@@ -12,8 +12,9 @@ import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import { useState } from 'react'
+import { Link as RouterLink } from 'react-router-dom'
 import {
-  useDetectDuplicates, useDuplicateGroups, useDuplicateSummary, useSelectAction,
+  useApplySuggestions, useDetectDuplicates, useDuplicateGroups, useDuplicateSummary, useSelectAction,
 } from '../hooks/useDuplicates'
 import { errorMessage } from '../services/api'
 import type { DuplicateAction, DuplicateEntry, DuplicateGroup, DuplicateSort } from '../types/duplicate'
@@ -45,7 +46,8 @@ function EntryRow({ entry }: { entry: DuplicateEntry }) {
         exclusive
         value={effective}
         onChange={(_, v: DuplicateAction | null) =>
-          select.mutate({ entryId: entry.entry_id, action: v })
+          // Clicking the highlighted suggestion confirms it; clicking your own choice clears it.
+          select.mutate({ entryId: entry.entry_id, action: v ?? (chosen ? null : effective) })
         }
       >
         <ToggleButton value="keep" color="success">Keep</ToggleButton>
@@ -79,6 +81,7 @@ export default function Duplicates() {
   const summary = useDuplicateSummary()
   const groups = useDuplicateGroups(sort, page, PAGE_SIZE)
   const detect = useDetectDuplicates()
+  const apply = useApplySuggestions()
   const pages = Math.max(1, Math.ceil((groups.data?.total ?? 0) / PAGE_SIZE))
 
   return (
@@ -99,9 +102,23 @@ export default function Duplicates() {
         </Button>
       </Stack>
 
-      <Alert severity="info">
-        Exact matches only (same MD5 and size). Trashed, shared-with-me, empty and Google-native files are
-        excluded. This page only records your choices; nothing is changed in Drive.
+      <Alert
+        severity="info"
+        action={
+          <Stack direction="row" spacing={1}>
+            <Button
+              size="small" disabled={!groups.data?.items.length || apply.isPending}
+              onClick={() => apply.mutate(groups.data?.items.map((g) => g.id) ?? [])}
+            >
+              Use suggestions for this page
+            </Button>
+            <Button size="small" component={RouterLink} to="/cleanup">Go to Cleanup</Button>
+          </Stack>
+        }
+      >
+        Exact matches only (same MD5 and size). To delete, mark copies as Trash (a grey “Suggested” button
+        is not a choice yet; click it or use “Use suggestions”), then open Cleanup to move them to Trash.
+        Nothing changes in Drive on this page.
       </Alert>
       {(detect.isError || groups.isError) && (
         <Alert severity="error">{errorMessage(detect.error ?? groups.error)}</Alert>
