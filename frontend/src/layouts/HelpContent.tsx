@@ -81,6 +81,26 @@ const HELP: Record<PageKey, { header: string; body: ReactNode }> = {
       </p>
     ),
   },
+  archives: {
+    header: 'Archives',
+    body: (
+      <>
+        <p>
+          Zip, rar and tar files you own. Extracting one downloads it to the DriveClean server, then uploads its files
+          into a new folder with the archive&apos;s name in the same place, keeping the folders inside the archive.
+        </p>
+        <p>
+          Each uploaded file is checked against the extracted one. Only when every file is in Drive does the archive move
+          to Trash, recorded in the Cleanup history so you can restore it. If a run fails or you cancel it, the archive
+          stays, and extracting it again continues in the same folder without uploading files twice.
+        </p>
+        <p>
+          Links, files that would land outside the folder, and macOS metadata (__MACOSX, .DS_Store) are skipped.
+          Password-protected archives are not supported.
+        </p>
+      </>
+    ),
+  },
   cleanup: {
     header: 'Cleanup',
     body: (

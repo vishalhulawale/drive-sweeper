@@ -1,6 +1,7 @@
 import { Button } from '../components/ui/core'
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useArchiveStatus, useCancelArchives } from '../hooks/useArchives'
 import { useCancelCleanup, useCleanupStatus } from '../hooks/useCleanup'
 import { useNearStatus } from '../hooks/useNear'
 import { useScans } from '../hooks/useScan'
@@ -14,7 +15,9 @@ export function useJobNotifications({ notify, dismiss }: NotificationsApi) {
   const near = useNearStatus()
   const cleanup = useCleanupStatus()
   const { mutate: cancelCleanup } = useCancelCleanup()
-  const was = useRef({ scan: false, near: false, cleanup: false })
+  const archives = useArchiveStatus()
+  const { mutate: cancelArchives } = useCancelArchives()
+  const was = useRef({ scan: false, near: false, cleanup: false, archives: false })
 
   const scan = scans.data?.[0]
   const scanActive = scan ? isActive(scan) : false
@@ -74,5 +77,29 @@ export function useJobNotifications({ notify, dismiss }: NotificationsApi) {
     was.current.cleanup = c?.running ?? false
   }, [c, notify, navigate, cancelCleanup])
 
-  useEffect(() => () => ['job-scan', 'job-near', 'job-cleanup'].forEach(dismiss), [dismiss])
+  const a = archives.data
+  useEffect(() => {
+    if (!a) return
+    const finished = a.extractions.filter((e) => !['pending', 'running'].includes(e.status))
+    if (a.running) {
+      notify({
+        id: 'job-archives', type: 'in-progress', loading: true, header: 'Extracting archives',
+        content: `${finished.length} of ${a.extractions.length} archives finished. It keeps running while the server is up.`,
+        action: <Button onClick={() => cancelArchives()}>Cancel remaining</Button>,
+      })
+    } else if (was.current.archives) {
+      const ok = finished.filter((e) => e.status === 'completed').length
+      const bad = finished.length - ok
+      notify({
+        id: 'job-archives', type: bad ? 'warning' : 'success', autoDismissMs: 15000,
+        content: bad
+          ? `Extracted ${ok} archive${ok === 1 ? '' : 's'}; ${bad} did not finish and were kept.`
+          : `Extracted ${ok} archive${ok === 1 ? '' : 's'} and moved ${ok === 1 ? 'it' : 'them'} to Trash.`,
+        action: <Button onClick={() => navigate('/archives')}>View details</Button>,
+      })
+    }
+    was.current.archives = a.running
+  }, [a, notify, navigate, cancelArchives])
+
+  useEffect(() => () => ['job-scan', 'job-near', 'job-cleanup', 'job-archives'].forEach(dismiss), [dismiss])
 }

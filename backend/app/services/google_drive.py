@@ -1,10 +1,12 @@
-"""Thin Google Drive API v3 client: metadata listing only, with retry/backoff.
+"""Thin Google Drive API v3 client with retry/backoff.
 
-Kept separate from scanning and duplicate detection (principle 3). The only write it can do is
-set_trashed() (to or from Trash) and move_file() (change folder). It never deletes anything permanently.
+Kept separate from scanning and duplicate detection (principle 3). Writes are limited to set_trashed()
+(to or from Trash), move_file() (change folder), and create_folder()/upload_file() for archive
+extraction, which is also the only feature that downloads file contents. It never deletes anything permanently.
 """
 import json
 import logging
+import os
 import random
 import re
 import threading
@@ -18,6 +20,7 @@ import httplib2
 from google.auth.exceptions import TransportError
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +29,15 @@ FILE_FIELDS = (
     "ownedByMe,webViewLink,trashed,trashedTime,shortcutDetails(targetId),capabilities(canTrash,canMoveItemWithinDrive)"
 )
 LIST_FIELDS = f"nextPageToken,files({FILE_FIELDS})"
+FOLDER_MIME = "application/vnd.google-apps.folder"
+UPLOAD_FIELDS = "id,md5Checksum,size"
+TRANSFER_CHUNK = 32 * 1024 * 1024      # download/upload chunk; a failed chunk is retried, not the whole file
+SIMPLE_UPLOAD_MAX = 5 * 1024 * 1024    # larger files use a resumable upload
+
+
+def _q(value: str) -> str:
+    """Escape a value for a Drive query string literal."""
+    return value.replace("\\", "\\\\").replace("'", "\\'")
 PAGE_SIZE = 1000
 MAX_ATTEMPTS = 6
 _RETRY_REASONS = {"rateLimitExceeded", "userRateLimitExceeded", "backendError", "internalError"}
@@ -84,9 +96,13 @@ class DriveClient:
         return svc
 
     def _execute(self, request, *, page_token: str | None = None):
+        return self._retry(request.execute, page_token=page_token)
+
+    def _retry(self, call: Callable[[], Any], *, page_token: str | None = None):
+        """Run one API call (a request's execute, or one chunk of a download/upload) with backoff."""
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                return request.execute()
+                return call()
             except HttpError as err:
                 if page_token and err.resp.status == 400:
                     raise InvalidPageToken(str(err)) from err
@@ -213,6 +229,61 @@ class DriveClient:
             raise DriveError(f"{what} failed with HTTP {resp.status}")
         raise DriveError(f"{what} failed")
 
+    # ---- archive extraction: the only place file contents are downloaded or files are created ----
+
+    def download_to(self, file_id: str, path: str) -> None:
+        """Stream a file's contents to a local path, in chunks, each retried on its own."""
+        request = self._service.files().get_media(fileId=file_id)
+        with open(path, "wb") as fh:
+            downloader = MediaIoBaseDownload(fh, request, chunksize=TRANSFER_CHUNK)
+            done = False
+            while not done:
+                _, done = self._retry(downloader.next_chunk)
+
+    def create_folder(self, name: str, parent_id: str) -> str:
+        body = {"name": name, "mimeType": FOLDER_MIME, "parents": [parent_id]}
+        return self._execute(self._service.files().create(body=body, fields="id"))["id"]
+
+    def find_folder(self, name: str, parent_id: str) -> str | None:
+        """An existing (not trashed) folder with exactly this name directly inside parent_id."""
+        q = (f"'{_q(parent_id)}' in parents and name = '{_q(name)}' and mimeType = '{FOLDER_MIME}' "
+             "and trashed = false")
+        files = self._execute(self._service.files().list(q=q, fields="files(id)", pageSize=10, spaces="drive")).get("files", [])
+        return files[0]["id"] if files else None
+
+    def list_children(self, folder_id: str) -> list[dict]:
+        """Everything directly inside a folder (not trashed): id, name, mimeType, md5Checksum, size."""
+        out, token = [], None
+        while True:
+            result = self._execute(self._service.files().list(
+                q=f"'{_q(folder_id)}' in parents and trashed = false", pageSize=PAGE_SIZE, pageToken=token,
+                fields="nextPageToken,files(id,name,mimeType,md5Checksum,size)", spaces="drive",
+            ), page_token=token)
+            out += result.get("files", [])
+            token = result.get("nextPageToken")
+            if not token:
+                return out
+
+    def upload_file(self, path: str, name: str, parent_id: str, mime_type: str) -> dict:
+        """Create a new file from a local path. Large files use a resumable upload, and each chunk is
+        retried on its own. Returns id, md5Checksum and size as Drive stored them."""
+        size = os.path.getsize(path)
+        body = {"name": name, "parents": [parent_id]}
+        if size <= SIMPLE_UPLOAD_MAX:
+            media = MediaFileUpload(path, mimetype=mime_type, resumable=False)
+            return self._execute(self._service.files().create(body=body, media_body=media, fields=UPLOAD_FIELDS))
+        media = MediaFileUpload(path, mimetype=mime_type, resumable=True, chunksize=TRANSFER_CHUNK)
+        request = self._service.files().create(body=body, media_body=media, fields=UPLOAD_FIELDS)
+        response = None
+        while response is None:
+            _, response = self._retry(request.next_chunk)
+        return response
+
+    def storage_quota(self) -> tuple[int | None, int]:
+        """(limit, usage) in bytes; limit is None for unlimited storage. Trash counts towards usage."""
+        q = self._execute(self._service.about().get(fields="storageQuota(limit,usage)"))["storageQuota"]
+        return (int(q["limit"]) if q.get("limit") else None), int(q.get("usage", 0))
+
     # ---- Trash ----
 
     def list_trashed_page(self, page_token: str | None = None) -> tuple[list[dict], str | None]:
@@ -227,4 +298,3 @@ class DriveClient:
         )
         result = self._execute(request, page_token=page_token)
         return result.get("files", []), result.get("nextPageToken")
-

@@ -11,3 +11,4 @@ cryptography>=43
 pytest>=8
 httpx>=0.27
 Pillow>=10
+rarfile>=4.2

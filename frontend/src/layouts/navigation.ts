@@ -11,6 +11,7 @@ export const PAGES = {
   duplicates: { href: '/duplicates', title: 'Duplicates' },
   similar: { href: '/similar', title: 'Similar photos' },
   organizer: { href: '/organizer', title: 'Organizer' },
+  archives: { href: '/archives', title: 'Archives' },
   cleanup: { href: '/cleanup', title: 'Cleanup' },
   trash: { href: '/trash', title: 'Trash' },
   scans: { href: '/scans', title: 'Scan history' },
@@ -20,7 +21,7 @@ export const PAGES = {
 export type PageKey = keyof typeof PAGES
 
 export const NAV_GROUPS: { title: string; pages: PageKey[] }[] = [
-  { title: 'Storage', pages: ['files', 'analytics'] },
+  { title: 'Storage', pages: ['files', 'analytics', 'archives'] },
   { title: 'Find and review', pages: ['duplicates', 'similar', 'organizer'] },
   { title: 'Clean up', pages: ['cleanup', 'trash'] },
 ]

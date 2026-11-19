@@ -5,11 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from contextlib import asynccontextmanager
 
-from app.api import analytics, auth, cleanup, duplicates, files, near_duplicates, organizer, scans, sync, trash
+from app.api import analytics, archives, auth, cleanup, duplicates, files, near_duplicates, organizer, scans, sync, trash
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.repositories import scan_repository
-from app.services import cleanup_service
+from app.services import archive_service, cleanup_service
 from app.workers import auto_sync
 
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +25,9 @@ async def lifespan(_app: FastAPI):
         m = cleanup_service.mark_orphans_interrupted(db)
         if m:
             logging.getLogger(__name__).warning("Marked %d orphaned cleanup operation(s) as failed", m)
+        a = archive_service.mark_orphans_interrupted(db)
+        if a:
+            logging.getLogger(__name__).warning("Marked %d orphaned archive extraction(s) as failed", a)
         auto_sync.reset_stuck(db)
     auto_sync.start()
     yield
@@ -52,6 +55,7 @@ app.include_router(organizer.router)
 app.include_router(sync.router)
 app.include_router(near_duplicates.router)
 app.include_router(trash.router)
+app.include_router(archives.router)
 
 
 @app.get("/api/health")

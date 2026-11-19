@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
     token_encryption_key: str = ""  # Fernet key
+    # Archive extraction: where archives are downloaded and unpacked (one file at a time), and the RAR
+    # tool (unrar, unar, bsdtar or 7z). Empty means the system temp folder / auto-detect.
+    extract_dir: str = ""
+    unrar_tool: str = ""
 
 
 settings = Settings()

@@ -14,6 +14,7 @@ const Analytics = lazy(() => import('./pages/Analytics'))
 const Duplicates = lazy(() => import('./pages/Duplicates'))
 const SimilarPhotos = lazy(() => import('./pages/SimilarPhotos'))
 const Organizer = lazy(() => import('./pages/Organizer'))
+const Archives = lazy(() => import('./pages/Archives'))
 const Cleanup = lazy(() => import('./pages/Cleanup'))
 const Trash = lazy(() => import('./pages/Trash'))
 const ScanHistory = lazy(() => import('./pages/ScanHistory'))
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="duplicates" element={<Duplicates />} />
         <Route path="similar" element={<SimilarPhotos />} />
         <Route path="organizer" element={<Organizer />} />
+        <Route path="archives" element={<Archives />} />
         <Route path="trash" element={<Trash />} />
         <Route path="cleanup" element={<Cleanup />} />
         <Route path="scans" element={<ScanHistory />} />
