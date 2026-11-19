@@ -151,6 +151,7 @@ Newest first.
 ### 2026-11-19 - UI redesign plan
 - Reviewed the current UI (code and screenshots) and wrote [docs/redesign-plan.md](docs/redesign-plan.md): move from MUI to Cloudscape (the AWS console design system), Geist font, light theme by default with dark mode and density options in Settings, a new favicon, an AWS-console-style shell (top bar, grouped side menu, breadcrumbs, notifications, help panel), and a page-by-page redesign.
 - Planned in 6 phases (foundation → dashboard → review pages → cleanup/trash → remaining pages → remove MUI). Nothing built yet.
+- Added to the plan: loading and feedback rules (content-shaped placeholders, timing thresholds, optimistic updates with undo, prefetching, inline errors), interactive charts (space bar, folder treemap with drill-down, type/year charts linking to files, Trash deletion timeline, scan trend, photo compare view), and measurable UX targets.
 
 ### 2026-11-19 - SHA-256 verification of exact duplicates (product decision, was missing)
 - The plan says duplicates are found by MD5 and verified with SHA-256, but `sha256_checksum` was never filled. Drive reports `sha256Checksum` as ordinary metadata (checked: all 940 files with an MD5 on one listing page have it), so no file content is downloaded.

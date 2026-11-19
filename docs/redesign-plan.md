@@ -10,6 +10,9 @@ Status: proposed, 2026-11-19. Nothing is built yet.
 4. Open in the **light theme** by default, with dark mode as an option in Settings.
 5. Add a real favicon and tab title.
 6. Make the main job, **getting storage back safely**, the centre of every page. Today the reclaimable numbers are spread across three pages and the Keep/Trash decision is visually weak.
+7. **Loading that feels fast and never shows wrong values**: placeholders shaped like the content, instant feedback on every action, and live progress for long jobs (section 7).
+8. **Interactive charts** that answer "where is my space going?" and lead straight to the files involved (section 8).
+9. Overall: an experience that is fast, predictable and forgiving, measured by the targets in section 9.
 
 Not changing: the backend, the API, the TanStack Query hooks in `src/hooks`, the services in `src/services`, the types, and the safety rules (nothing is deleted permanently; every trash action is approved by the user). This is a presentation-layer rewrite only.
 
@@ -261,7 +264,86 @@ Header: "Cleanup", with the description "Files you marked for Trash. They go to 
 - **Display**: Theme (Light, the default / Dark / Match system) and Density (Comfortable, the default / Compact) as `Tiles` or `RadioGroup`.
 - **Sync**: the auto-sync toggle and interval, moved here from the dashboard (the dashboard keeps a status summary and "Sync now").
 
-## 7. Code structure
+## 7. Loading and feedback
+
+The rule: **the screen is never blank, never wrong, and never silent.** A placeholder shows where content will appear, a value is only shown once it's real, and every click gets a visible response straight away.
+
+### 7.1 Timing thresholds
+
+| How long it takes | What the user sees |
+|---|---|
+| Under 300 ms | Nothing extra; the content just appears, so there's no flicker. |
+| 300 ms – 10 s | A placeholder shaped like the content, or a loading state on the button that was clicked. |
+| Over 10 s (scan, photo analysis, cleanup, fetching dates) | Exact progress: "8,412 of 12,347 photos", a progress bar, an estimated time left and speed, plus Stop/Cancel. Shown in the notification bar on every page. |
+| Running in the background after leaving the page | The notification keeps running; when it finishes, a result notification with a link to the result. |
+
+A shared `useDelayedFlag(isLoading, 300)` hook gives this timing to every component.
+
+### 7.2 Placeholders shaped like the content
+
+Cloudscape has no skeleton component, so a small `Skeleton` set is built with its design tokens (`colorBackgroundContainerHeader`-tinted blocks with a gentle shimmer that switches off for reduced motion):
+
+- **Dashboard**: the "Space you can free" figure and bar, the scan and sync status, and the inventory values each get a placeholder the same size as the real content, so nothing jumps when data arrives.
+- **Tables**: Cloudscape `Table` `loading` + `loadingText` on first load ("Loading duplicate groups"). On refetch, page change or sort, the **previous rows stay visible** (TanStack `placeholderData: keepPreviousData`), with a thin progress line under the header instead of emptying the table.
+- **Photo tiles**: a fixed 4:3 tile with a placeholder block, so the grid never reflows. The image fades in when loaded. A broken image becomes a "Preview unavailable" tile with the file icon and a "Open in Drive" link.
+- **Charts**: Cloudscape chart `statusType="loading"` with a chart-shaped placeholder; `statusType="error"` with "Retry".
+- **Pages**: routes are split with `React.lazy`; the Suspense fallback is the page header + content placeholders, so the shell (menu, top bar) never disappears.
+
+### 7.3 Instant feedback on actions
+
+- **Optimistic updates** for Keep/Trash decisions and "Apply suggestions": the UI changes the moment you click, the request runs in the background, and if it fails the change is rolled back with an error notification that has a "Retry" button.
+- Every button that starts a request uses Cloudscape's `loading` state, and repeated clicks are blocked while it runs.
+- Bulk actions show a result notification with **Undo** for 10 seconds ("Marked 1,204 files for Trash in 263 groups. Undo"). Undo restores the previous decisions.
+- Counts in the side menu (marked for Trash, groups to review) update as soon as decisions change.
+
+### 7.4 Prefetching
+
+- Hovering or focusing a menu item prefetches that page's first query.
+- On the review pages the next page of groups and its thumbnails are prefetched, so "Next" is instant.
+- Hovering a duplicate group's row prefetches its details.
+
+### 7.5 Errors and offline
+
+- A failed request in a container shows an inline error state in that container ("Couldn't load scan status. Retry"), not a page-wide failure.
+- If the backend can't be reached, a single persistent notification says so and retries automatically with backoff; it disappears when the connection comes back.
+- Google permission problems always name the permission and offer the button to grant it.
+
+## 8. Interactive visualizations
+
+Every chart answers one question, shows the details on hover or keyboard focus, and **links straight to the files involved**. Built with Cloudscape charts (interactive popovers, legend filtering, keyboard navigation and screen-reader text are built in) plus one custom treemap. All charts follow the `dataviz` skill: one hue per meaning, readable units, direct labels, light and dark mode checked.
+
+| Where | Visual | Question it answers | Interaction |
+|---|---|---|---|
+| Dashboard | **Space you can free bar** (custom, segmented) | How much can I get back, and from where? | Hover/focus a segment for a breakdown popover; click to open Similar photos, Duplicates or Trash. The bar fills once on first load (the only automatic animation in the app; off for reduced motion). |
+| Dashboard | Storage by type, small donut (`PieChart` donut) | What kind of files fill my Drive? | Hover for size and share; popover footer link "View files" opens Files filtered by that type. |
+| Analytics | **Folder treemap** (custom SVG, layout by `d3-hierarchy`) | Which folders are biggest, all the way down? | Click a folder to zoom into it; breadcrumbs to go back up; hover for size, file count, and reclaimable duplicates in it; "Show files" opens Files filtered by folder. Arrow keys move between tiles, Enter zooms in. Rectangles are labelled when there's space; a table view toggle shows the same data as a sortable table. |
+| Analytics | Storage by type (`BarChart`, horizontal) | Same as the donut, in full | Legend filter; popover link "View files". |
+| Analytics | Storage by year created (`BarChart`, stacked by type) | When did my Drive grow? | Hover a year for the per-type breakdown; click "View files" for that year; legend toggles types. |
+| Analytics | Largest files (table with an inline size bar) | What single files are worth looking at? | Sortable; row links open in Drive. |
+| Similar photos | **Compare view** (`Modal`, side-by-side) | Are these photos really the same? | Open from a group; up to 4 photos side by side at large size with zoom on click; size, dimensions (when Drive provides them) and dates with differences highlighted; Keep/Trash decisions can be made in the dialog; arrow keys move to the next group. |
+| Trash | Deletion timeline (`BarChart`, bytes by day for the next 30 days) | When will Drive free this space by itself? | Hover a day for files and size; click to filter the table to that day. |
+| Scan history | Scan trend (`LineChart`: files scanned and duration per scan) | Is my Drive growing, are scans getting slower? | Hover for exact values; toggle series. |
+| Cleanup (running) | Live progress (`ProgressBar` with files/min and time left) | When will it finish? | Cancel remaining from the same notification. |
+
+New dependency: `d3-hierarchy` (layout maths only, around 10 KB; rendering stays in React). Treemap data comes from the existing largest-folders endpoint; if it needs nested folder totals, that is a small backend addition flagged in phase 4.
+
+## 9. UX targets
+
+How we'll know the experience is better. Each one is checked in the phase that touches it.
+
+| Target | Measure |
+|---|---|
+| Never show a wrong value | No placeholder value ("Never", "0", "Start first scan") before its query has returned. Checked by throttling the network to "Slow 4G" in Chrome. |
+| Feedback for every action | Visible response within 100 ms of any click (optimistic change, button loading state or notification). |
+| No layout jumps | Content doesn't shift when data or images load (placeholders match final sizes). |
+| Fast navigation | With data cached, switching pages shows content immediately; first visit shows the page frame immediately and data as it arrives. |
+| Clear path to clean up | From the dashboard, each step names and links the next: Review duplicates → Apply suggestions → result notification "Review 1,204 files in Cleanup" → Move to Trash. No more clicks than today, but you always see what is selected before anything changes in Drive. |
+| Faster photo review | Keyboard review: `J`/`K` next/previous group, `1` keep / `2` trash on the focused photo, `A` apply the suggestion to the group, `C` open the compare view. Shortcuts listed in the help panel and under `?`. |
+| Forgiving | Every bulk decision can be undone from its notification; every Trash move can be restored from history. |
+| State survives reloads | Filters, sorting, page number and the open folder in the treemap live in the URL. |
+| Accessible | Keyboard-only completion of a full review and cleanup; no contrast failures in either theme. |
+
+## 10. Code structure
 
 ```
 frontend/src/
@@ -276,15 +358,17 @@ frontend/src/
     HelpPanelProvider.tsx     per-page help content (useHelp hook)
   components/
     common/                   StatusFor (scan/op status → StatusIndicator), Bytes, EmptyState, InfoLink
+    loading/                  Skeleton blocks, PageSkeleton, ImageWithPlaceholder, useDelayedFlag
+    charts/                   SpaceBar, StorageTreemap, TypeDonut, YearBars, TrashTimeline, ScanTrend
     dashboard/                SpaceToReclaim, ScanContainer, SyncSummary, NextSteps, Inventory
-    review/                   DecisionControl (Keep|Trash), PhotoTile, PhotoGroup, DuplicateTable
+    review/                   DecisionControl (Keep|Trash), PhotoTile, PhotoGroup, DuplicateTable, CompareModal, useReviewShortcuts
   pages/                      same 11 pages, rewritten on Cloudscape
   hooks/ services/ types/ utils/   unchanged
 ```
 
 `DecisionControl` is shared by Duplicates and Similar photos so the Keep/Trash look and behaviour are the same everywhere.
 
-## 8. Accessibility and quality floor
+## 11. Accessibility and quality floor
 
 - Cloudscape components handle focus, keyboard support and ARIA. Custom pieces (photo tiles, space bar) get: visible focus rings using Cloudscape's focus token, `role="button"` + `aria-pressed` on tiles, and text alternatives for the bar ("6.9 GB of 103 GB can be freed").
 - Colour is never the only signal: Keep and Trash always carry text badges.
@@ -292,30 +376,33 @@ frontend/src/
 - Works down to 360px wide: the side menu becomes a drawer, tables scroll inside their container, the photo grid drops to 2 columns.
 - Contrast checked in both modes for the teal accent and the status colours.
 
-## 9. Phases
+## 12. Phases
 
 Each phase builds, runs, and is committed and pushed with a README progress-log entry.
 
 | Phase | Scope | Done when |
 |---|---|---|
-| 0. Foundation | Install Cloudscape and fonts; global styles; theme tokens; mode/density preferences with light as the default; favicon and logo; tab titles; `AppShell` with grouped navigation, breadcrumbs, notifications and help panel. Remove `CssBaseline`. Old pages render inside the new shell. | App opens in light mode in the new shell; the side menu collapses at narrow widths; favicon appears. |
-| 1. Dashboard, Connect, Settings | Space-you-can-free container, scan/sync containers, next steps, inventory, loading states; connect page; settings with display preferences. | The dashboard shows space you can free; no wrong "Never" while loading. |
-| 2. Review pages | `DecisionControl`, Duplicates expandable table with batch "Apply suggestions", Similar photos tiles/groups and analysis container. | Keeper vs Trash readable at a glance; thumbnail grid aligned; actions in headers. |
-| 3. Cleanup and Trash | Ready-to-move table (all rows), confirm modal, progress in the Flashbar, history with restore; Trash page. | A full cleanup run can be done and undone from the new UI. |
-| 4. Files, Analytics, Organizer, Scan history | Property filter table, charts, organizer selection table and history, scan history. | Every route is on Cloudscape. |
-| 5. Remove MUI and polish | Uninstall MUI/Emotion; dark mode and compact density checked; a11y pass; responsive pass; bundle size check; README update. | `grep -r "@mui" src` is empty; build and lint pass; light and dark screenshots of every page reviewed. |
+| 0. Foundation | Install Cloudscape and fonts; global styles; theme tokens; mode/density preferences with light as the default; favicon and logo; tab titles; `AppShell` with grouped navigation, breadcrumbs, notifications and help panel. Remove `CssBaseline`. Loading toolkit (`Skeleton`, `useDelayedFlag`, `ImageWithPlaceholder`), route-level code splitting, `keepPreviousData` as the query default, the offline/backend-down notification. Old pages render inside the new shell. | App opens in light mode in the new shell; the side menu collapses at narrow widths; favicon appears; switching pages never blanks the shell. |
+| 1. Dashboard, Connect, Settings | Space-you-can-free container, scan/sync containers, next steps, inventory, content-shaped placeholders; interactive space bar and storage-by-type donut; connect page; settings with display preferences. | The dashboard shows space you can free; no wrong "Never" while loading (checked on Slow 4G). |
+| 2. Review pages | `DecisionControl`, Duplicates expandable table with batch "Apply suggestions", Similar photos tiles/groups and analysis container; optimistic decisions with rollback; Undo notifications for bulk actions; compare view; keyboard shortcuts; prefetch of the next page and thumbnails. | Keeper vs Trash readable at a glance; thumbnail grid aligned; actions in headers; a group can be reviewed with the keyboard alone. |
+| 3. Cleanup and Trash | Ready-to-move table (all rows), confirm modal, live progress in the notification bar (speed and time left), history with restore; Trash page with the deletion timeline. | A full cleanup run can be done and undone from the new UI. |
+| 4. Files, Analytics, Organizer, Scan history | Property filter table; Analytics with the folder treemap (drill-down, keyboard, table view), type and year charts linking to filtered Files; organizer selection table and history; scan history with the trend chart. | Every route is on Cloudscape; every chart links to the files behind it. |
+| 5. Remove MUI and polish | Uninstall MUI/Emotion; dark mode and compact density checked; a11y pass; responsive pass; bundle size check; run through every UX target in section 9; README update. | `grep -r "@mui" src` is empty; build and lint pass; light and dark screenshots of every page reviewed. |
 
-## 10. Verification per phase
+## 13. Verification per phase
 
 - `npm run build` and `npm run lint`.
 - Screenshots of every changed page in Chrome at 1440px and 390px, in light mode and dark mode, compared with the "before" screenshots from 2026-11-19.
 - Exercise the live flows against the running backend: start a scan, mark files, apply suggestions, move one test file to Trash and restore it.
-- Keyboard-only pass over the review pages (Tab, Space/Enter on tiles and segmented controls).
+- Keyboard-only pass over the review pages (Tab, Space/Enter on tiles and segmented controls, review shortcuts).
+- Loading checks with Chrome network throttling (Slow 4G): placeholders appear, no wrong values, no layout jumps; offline notification when the backend is stopped.
 
-## 11. Risks and open questions
+## 14. Risks and open questions
 
 - **Bundle size**: Cloudscape is larger than the MUI subset in use. Mitigation: per-component imports and route-level code splitting with `React.lazy`. Check the size in phase 5.
 - **Custom styling**: Cloudscape discourages overriding its components. Custom visuals are limited to the space bar and photo tiles, built with its design tokens so they follow light/dark mode.
 - **Expandable rows with server pagination**: groups are already paginated by the server, so the page's groups expand locally. Large groups (50+ photos) show their first 24 files with "Show all".
 - **Name**: the plan keeps "DriveClean", as used in the README and the app. If you want "Drive Sweeper" (the repo name), it's a one-line change in phase 0.
+- **Treemap data**: if the existing folder endpoint only returns top-level folders, the treemap needs a small backend endpoint for nested folder totals (phase 4).
+- **Photo dimensions** for the compare view depend on Drive's image metadata being stored; if it isn't, the compare view shows size and dates only until the scanner stores it.
 - **React 19**: Cloudscape declares `react >= 16.8`. If any component warns under React 19, it'll be noted and worked around in the phase where it shows up.
