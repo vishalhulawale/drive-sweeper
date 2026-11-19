@@ -1,40 +1,53 @@
-import Alert from '@mui/material/Alert'
-import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
-import CircularProgress from '@mui/material/CircularProgress'
+import Alert from '@cloudscape-design/components/alert'
+import Box from '@cloudscape-design/components/box'
+import Button from '@cloudscape-design/components/button'
+import Spinner from '@cloudscape-design/components/spinner'
+import { lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { useDelayedFlag } from './components/loading/useDelayedFlag'
 import { useAuthStatus } from './hooks/useGoogleDrive'
 import AppShell from './layouts/AppShell'
-import ConnectPage from './pages/ConnectPage'
-import Analytics from './pages/Analytics'
-import Cleanup from './pages/Cleanup'
-import Dashboard from './pages/Dashboard'
-import SimilarPhotos from './pages/SimilarPhotos'
-import Organizer from './pages/Organizer'
-import Duplicates from './pages/Duplicates'
-import FileExplorer from './pages/FileExplorer'
-import ScanHistory from './pages/ScanHistory'
-import Trash from './pages/Trash'
-import Settings from './pages/Settings'
 import { errorMessage } from './services/api'
+
+// Each page is its own chunk; AppShell shows a page-shaped placeholder while one loads.
+const ConnectPage = lazy(() => import('./pages/ConnectPage'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const FileExplorer = lazy(() => import('./pages/FileExplorer'))
+const Analytics = lazy(() => import('./pages/Analytics'))
+const Duplicates = lazy(() => import('./pages/Duplicates'))
+const SimilarPhotos = lazy(() => import('./pages/SimilarPhotos'))
+const Organizer = lazy(() => import('./pages/Organizer'))
+const Cleanup = lazy(() => import('./pages/Cleanup'))
+const Trash = lazy(() => import('./pages/Trash'))
+const ScanHistory = lazy(() => import('./pages/ScanHistory'))
+const Settings = lazy(() => import('./pages/Settings'))
+
+const centred = { minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 16 } as const
 
 export default function App() {
   const auth = useAuthStatus()
+  const slow = useDelayedFlag(auth.isLoading)
 
   if (auth.isLoading) {
     return (
-      <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
-        <CircularProgress />
-      </Box>
+      <div style={centred}>
+        {slow && (
+          <Box color="text-body-secondary">
+            <Spinner size="large" /> Connecting to DriveClean
+          </Box>
+        )}
+      </div>
     )
   }
   if (auth.isError) {
     return (
-      <Box sx={{ p: 4, maxWidth: 560, mx: 'auto' }}>
-        <Alert severity="error" action={<Button onClick={() => auth.refetch()}>Retry</Button>}>
-          {errorMessage(auth.error)}
-        </Alert>
-      </Box>
+      <div style={centred}>
+        <div style={{ maxWidth: 560 }}>
+          <Alert type="error" header="Can't reach DriveClean" action={<Button onClick={() => auth.refetch()}>Retry</Button>}>
+            {errorMessage(auth.error)}
+          </Alert>
+        </div>
+      </div>
     )
   }
   if (!auth.data?.connected) return <ConnectPage />

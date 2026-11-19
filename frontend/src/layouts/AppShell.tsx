@@ -3,7 +3,7 @@ import Badge from '@cloudscape-design/components/badge'
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group'
 import SideNavigation, { type SideNavigationProps } from '@cloudscape-design/components/side-navigation'
 import TopNavigation from '@cloudscape-design/components/top-navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useCleanupPlan } from '../hooks/useCleanup'
 import { useDuplicateSummary } from '../hooks/useDuplicates'
@@ -15,6 +15,8 @@ import HelpContent from './HelpContent'
 import { APP_NAME, DRIVE_URL, NAV_FOOTER, NAV_GROUPS, PAGES, pageFor, type PageKey } from './navigation'
 import { NotificationsBar, NotificationsProvider } from './NotificationsProvider'
 import { useNotificationsState } from './useNotificationsState'
+import { useBackendStatus } from './useBackendStatus'
+import PageSkeleton from '../components/loading/PageSkeleton'
 
 const THEMES: { id: ThemePref; text: string }[] = [
   { id: 'light', text: 'Light' },
@@ -38,6 +40,7 @@ export default function AppShell() {
   const prefs = usePreferences()
   const counts = useNavCounts()
   const notifications = useNotificationsState()
+  useBackendStatus(notifications.api)
   const [navOpen, setNavOpen] = useState(true)
   const [toolsOpen, setToolsOpen] = useState(false)
 
@@ -135,7 +138,7 @@ export default function AppShell() {
             tools: 'Help panel', toolsToggle: 'Open help panel', toolsClose: 'Close help panel',
             notifications: 'Notifications',
           }}
-          content={<Outlet />}
+          content={<Suspense fallback={<PageSkeleton />}><Outlet /></Suspense>}
         />
       </HelpContext.Provider>
     </NotificationsProvider>

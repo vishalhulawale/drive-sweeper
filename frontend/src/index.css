@@ -5,3 +5,14 @@ table td,
 [data-numeric] {
   font-variant-numeric: tabular-nums;
 }
+
+/* Images fade in once loaded (see ImageWithPlaceholder). */
+.dc-fade-in {
+  transition: opacity 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dc-fade-in {
+    transition: none;
+  }
+}

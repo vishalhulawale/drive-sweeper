@@ -140,12 +140,15 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
-### 2026-11-19 - UI redesign phase 0: foundation (in progress)
+### 2026-11-19 - UI redesign phase 0: foundation
 Following [docs/redesign-plan.md](docs/redesign-plan.md).
 - Added Cloudscape (`components`, `global-styles`, `collection-hooks`, `design-tokens`) and self-hosted Geist / Geist Mono fonts. MUI stays until each page is moved over.
 - `src/theme/`: Cloudscape token overrides (Geist as the font), display preferences (theme light/dark/system and density, **light by default**, kept in `localStorage` with a safe fallback), and an MUI theme that follows the same mode and font so unmoved pages match. Removed MUI's `CssBaseline`; Cloudscape's base styles are used instead.
 - New favicon: a teal mark of two stacked file sheets with a check (`favicon.svg` with a dark-mode variant, `favicon.ico` 16/32/48, `apple-touch-icon.png`). Tab title is now "DriveClean" with a description and `theme-color`. Removed the unused Vite template assets.
 - New app shell (`layouts/AppShell.tsx`) on Cloudscape `AppLayoutToolbar`, replacing `MainLayout`: dark top bar with logo, "Open Google Drive" and an account menu (Settings, Theme: Light / Dark / Match system); side menu grouped as Storage / Find and review / Clean up with live counts (duplicate groups, similar-photo groups, files marked for Trash); breadcrumbs; per-page tab titles ("Duplicates · DriveClean"); a help panel with each page's explanation (`HelpContent.tsx`); and a shared page-top notification bar (`useNotify`) for later phases. The menu collapses to a drawer on narrow screens. Existing pages render unchanged inside it.
+- Loading toolkit (`components/loading/`): `useDelayedFlag` (no indicator for loads under 300 ms), `PageSkeleton` / `ContainerSkeleton` / `TextSkeleton` placeholders, and `ImageWithPlaceholder` (fixed-ratio frame, fade-in, "Preview unavailable" on error). Every page is now its own code chunk (`React.lazy`) and shows a page-shaped placeholder while it loads; the top bar and menu never disappear. `keepPreviousData` is the default for all queries, so tables keep their rows while the next page or sort loads. The startup screens (connecting, can't reach the server) are on Cloudscape.
+- If the backend can't be reached, one persistent notification says so; the app checks `/api/health` again with backoff (2 s up to 30 s) and refreshes everything when it is back. Not yet tested by stopping the backend, to avoid interrupting backend work in progress.
+- Open: the main bundle is about 1.5 MB (350 KB gzipped) while MUI and Cloudscape are both loaded; size is checked again in phase 5 after MUI is removed.
 
 ### 2026-11-19 - Similar photos: stronger fingerprint (fixes the open finding)
 - The 64-bit greyscale fingerprint grouped images that only shared a layout: 54 different pages of one scanned form, 44 garment swatches that differ only in colour, and moving burst frames.
