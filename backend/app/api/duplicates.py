@@ -99,11 +99,16 @@ def apply_suggestions(body: ApplySuggestionsIn, db: Session = Depends(get_db)):
 
     Records choices only; nothing is changed in Drive."""
     acc = _account_id(db)
-    entries = db.scalars(
+    if not body.all_groups and not body.group_ids:
+        raise HTTPException(422, "Provide group_ids or all_groups")
+    stmt = (
         select(DuplicateGroupFile)
         .join(DuplicateGroup, DuplicateGroup.id == DuplicateGroupFile.duplicate_group_id)
-        .where(DuplicateGroup.account_id == acc, DuplicateGroup.id.in_(body.group_ids))
+        .where(DuplicateGroup.account_id == acc)
     )
+    if not body.all_groups:
+        stmt = stmt.where(DuplicateGroup.id.in_(body.group_ids))
+    entries = db.scalars(stmt)
     for e in entries:
         e.user_selected_action = e.recommended_action
     db.commit()

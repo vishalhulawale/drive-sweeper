@@ -39,4 +39,5 @@ class SelectionIn(BaseModel):
 
 
 class ApplySuggestionsIn(BaseModel):
-    group_ids: list[int] = Field(min_length=1, max_length=100)
+    group_ids: list[int] = Field(default_factory=list, max_length=100)
+    all_groups: bool = False  # apply to every group instead of group_ids

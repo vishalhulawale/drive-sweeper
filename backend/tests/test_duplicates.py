@@ -91,5 +91,10 @@ def test_api_endpoints(seeded, monkeypatch):
     assert c.post("/api/duplicates/apply-suggestions", json={"group_ids": [g["id"]]}).status_code == 200
     after = c.get(f"/api/duplicates/{g['id']}").json()["files"]
     assert all(f["user_selected_action"] == f["recommended_action"] for f in after)
+    assert c.post("/api/duplicates/apply-suggestions", json={}).status_code == 422
+    assert c.post("/api/duplicates/apply-suggestions", json={"all_groups": True}).status_code == 200
+    by_id = {f["file"]["google_file_id"]: f["user_selected_action"]
+             for f in c.get(f"/api/duplicates/{g['id']}").json()["files"]}
+    assert by_id == {"a2": "keep", "a1": "trash", "a3": "trash"}  # oldest kept, newer trashed
     assert c.get(f"/api/duplicates/{g['id']}").status_code == 200
     assert c.get("/api/duplicates/999999").status_code == 404

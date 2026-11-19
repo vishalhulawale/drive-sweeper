@@ -131,6 +131,10 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Keep oldest, trash newer
+- Rule confirmed: in each duplicate group the oldest copy (by created time) is kept, because newer copies are most likely copy-pasted duplicates. New buttons on the Duplicates page, **Trash newer copies (this page)** and **(all groups)**, record that choice in one click (`POST /api/duplicates/apply-suggestions` with `group_ids` or `all_groups`). Individual files can still be adjusted. Choices only; files move to Trash from the Cleanup page.
+- 39 backend tests passing; frontend clean.
+
 ### 2026-11-19 - Fix: choosing files to delete was unclear
 - A highlighted "Trash" button on the Duplicates page was only a suggestion, so Cleanup showed "Nothing selected". Now clicking the suggestion records it, and "Use suggestions for this page" records all suggestions at once (`POST /api/duplicates/apply-suggestions`, records choices only). The page also links to Cleanup and explains the two-step flow: mark Trash on Duplicates, then Move to Trash on Cleanup.
 - 39 backend tests passing; frontend clean.

@@ -110,15 +110,21 @@ export default function Duplicates() {
               size="small" disabled={!groups.data?.items.length || apply.isPending}
               onClick={() => apply.mutate(groups.data?.items.map((g) => g.id) ?? [])}
             >
-              Use suggestions for this page
+              Trash newer copies (this page)
+            </Button>
+            <Button
+              size="small" disabled={!summary.data?.groups || apply.isPending}
+              onClick={() => apply.mutate('all')}
+            >
+              Trash newer copies (all groups)
             </Button>
             <Button size="small" component={RouterLink} to="/cleanup">Go to Cleanup</Button>
           </Stack>
         }
       >
-        Exact matches only (same MD5 and size). To delete, mark copies as Trash (a grey “Suggested” button
-        is not a choice yet; click it or use “Use suggestions”), then open Cleanup to move them to Trash.
-        Nothing changes in Drive on this page.
+        Exact matches only (same MD5 and size). The oldest copy in each group is kept; “Trash newer copies”
+        marks all the others for Trash (you can still adjust any file). Then open Cleanup to move them to
+        Trash. Nothing changes in Drive on this page.
       </Alert>
       {(detect.isError || groups.isError) && (
         <Alert severity="error">{errorMessage(detect.error ?? groups.error)}</Alert>

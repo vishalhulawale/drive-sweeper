@@ -10,9 +10,13 @@ export const duplicateService = {
     api
       .get<DuplicatePage>('/api/duplicates', { params: { sort, page, page_size: pageSize } })
       .then((r) => r.data),
-  applySuggestions: (groupIds: number[]) =>
+  // Keep the oldest copy in each group and mark the newer copies for Trash (records choices only).
+  applySuggestions: (scope: number[] | 'all') =>
     api
-      .post<DuplicateSummary>('/api/duplicates/apply-suggestions', { group_ids: groupIds })
+      .post<DuplicateSummary>(
+        '/api/duplicates/apply-suggestions',
+        scope === 'all' ? { all_groups: true } : { group_ids: scope },
+      )
       .then((r) => r.data),
   select: (entryId: number, action: DuplicateAction | null) =>
     api
