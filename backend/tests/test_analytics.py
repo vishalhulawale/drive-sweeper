@@ -98,3 +98,19 @@ def test_api(seeded, monkeypatch):
     assert c.get("/api/analytics/largest-folders").status_code == 200
     assert c.get("/api/analytics/by-year").status_code == 200
     assert c.get("/api/analytics/largest-files?limit=0").status_code == 422
+
+
+def test_folder_tree(seeded, monkeypatch):
+    db, acc = seeded
+    top = svc.folder_tree(db, acc.id, None)
+    assert [c["name"] for c in top["children"]] == ["Photos"]
+    assert top["children"][0]["bytes"] == 1150 and top["children"][0]["has_subfolders"]
+    assert (top["loose_bytes"], top["loose_files"]) == (57, 3)  # doc.pdf + bk.zip + blob at the top level
+    photos = svc.folder_tree(db, acc.id, "A")
+    assert [c["name"] for c in photos["children"]] == ["Trips"]
+    assert photos["children"][0]["bytes"] == 1100 and not photos["children"][0]["has_subfolders"]
+    assert (photos["loose_bytes"], photos["loose_files"]) == (50, 1)  # b.png; trash, shared and Docs excluded
+    monkeypatch.setattr(oauth_service, "get_account", lambda _db: acc)
+    c = TestClient(app)
+    assert c.get("/api/analytics/folder-tree?folder=B").json()["loose_files"] == 2
+    assert c.get("/api/analytics/folder-tree?folder=nope").status_code == 404

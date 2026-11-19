@@ -30,5 +30,22 @@ class FolderUsage(BaseModel):
     files: int
 
 
+class FolderNode(BaseModel):
+    google_file_id: str
+    name: str
+    bytes: int
+    files: int
+    has_subfolders: bool
+
+
+class FolderTree(BaseModel):
+    folder_id: str | None
+    name: str
+    bytes: int
+    children: list[FolderNode]
+    loose_bytes: int
+    loose_files: int
+
+
 class LargestFiles(BaseModel):
     items: list[FileOut]

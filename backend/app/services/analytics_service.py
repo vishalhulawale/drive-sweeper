@@ -94,8 +94,9 @@ def largest_files(db: Session, account_id: int, limit: int = 25) -> list[DriveFi
     )
 
 
-def largest_folders(db: Session, account_id: int, limit: int = 25) -> list[dict]:
-    """Folder size = all owned, live files below it. Each file counts under its primary parent chain."""
+def _folder_totals(db: Session, account_id: int):
+    """Folder tree and sizes. A folder's size is all owned, live files below it; each file counts under its
+    primary parent chain. Also returns what sits directly in each folder ("" = the top level of My Drive)."""
     rows = db.execute(
         select(
             DriveFile.google_file_id, DriveFile.name, DriveFile.parent_folder_id, DriveFile.mime_type,
@@ -111,9 +112,14 @@ def largest_folders(db: Session, account_id: int, limit: int = 25) -> list[dict]
 
     total: dict[str, int] = defaultdict(int)
     count: dict[str, int] = defaultdict(int)
+    direct_bytes: dict[str, int] = defaultdict(int)
+    direct_files: dict[str, int] = defaultdict(int)
     for gid, _name, pid, mime, size, owned in rows:
         if mime == FOLDER or not owned or not size or mime.startswith(GAPPS):
             continue
+        here = pid if pid in parent else ""
+        direct_bytes[here] += size
+        direct_files[here] += 1
         seen: set[str] = set()
         cur = pid
         while cur and cur in parent and cur not in seen:  # `seen` guards against cycles
@@ -121,9 +127,43 @@ def largest_folders(db: Session, account_id: int, limit: int = 25) -> list[dict]
             total[cur] += size
             count[cur] += 1
             cur = parent[cur]
+    return parent, names, total, count, direct_bytes, direct_files
 
+
+def largest_folders(db: Session, account_id: int, limit: int = 25) -> list[dict]:
+    """Folder size = all owned, live files below it. Each file counts under its primary parent chain."""
+    _parent, names, total, count, _db, _df = _folder_totals(db, account_id)
     ranked = sorted(total, key=lambda k: -total[k])[:limit]
     return [
         {"google_file_id": k, "name": names[k], "bytes": total[k], "files": count[k]}
         for k in ranked
     ]
+
+
+def folder_tree(db: Session, account_id: int, folder_id: str | None) -> dict:
+    """One level of the folder tree for the storage treemap: the folders inside `folder_id` (None = top level)
+    with their total sizes, plus the files that sit directly in it."""
+    parent, names, total, count, direct_bytes, direct_files = _folder_totals(db, account_id)
+    key = folder_id or ""
+    if folder_id is not None and folder_id not in parent:
+        raise KeyError(folder_id)
+    children = [
+        {
+            "google_file_id": gid, "name": names[gid], "bytes": total[gid], "files": count[gid],
+            "has_subfolders": False,
+        }
+        for gid, pid in parent.items()
+        if (pid if pid in parent else "") == key and gid != folder_id and total[gid] > 0
+    ]
+    with_kids = {pid for pid in parent.values() if pid in parent}
+    for c in children:
+        c["has_subfolders"] = c["google_file_id"] in with_kids
+    children.sort(key=lambda c: -c["bytes"])
+    return {
+        "folder_id": folder_id,
+        "name": names.get(folder_id, "My Drive") if folder_id else "My Drive",
+        "bytes": total[folder_id] if folder_id else sum(direct_bytes.values()),
+        "children": children,
+        "loose_bytes": direct_bytes[key],
+        "loose_files": direct_files[key],
+    }

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas.analytics import FolderUsage, LargestFiles, Overview, YearUsage
+from app.schemas.analytics import FolderTree, FolderUsage, LargestFiles, Overview, YearUsage
 from app.schemas.files import FileOut
 from app.services import analytics_service as svc
 from app.services import oauth_service
@@ -35,3 +35,12 @@ def largest_files(limit: int = Query(25, ge=1, le=200), db: Session = Depends(ge
 @router.get("/largest-folders", response_model=list[FolderUsage])
 def largest_folders(limit: int = Query(25, ge=1, le=200), db: Session = Depends(get_db)):
     return svc.largest_folders(db, _account_id(db), limit)
+
+
+@router.get("/folder-tree", response_model=FolderTree)
+def folder_tree(folder: str | None = None, db: Session = Depends(get_db)):
+    """One level of the folder tree with total sizes, for the storage treemap. Omit `folder` for the top level."""
+    try:
+        return svc.folder_tree(db, _account_id(db), folder)
+    except KeyError:
+        raise HTTPException(404, "Folder not found")
