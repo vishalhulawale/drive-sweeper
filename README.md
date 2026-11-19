@@ -131,6 +131,12 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Cleanup handles all groups (background runs)
+- Limit raised from 100 to 10,000 files per run. Because trashing thousands of files takes a long time (about 2-3 Drive calls per file, so roughly 20-30 minutes for ~4,200 files), `POST /api/cleanup/execute` now queues the work and returns 202; a background worker (`workers/cleanup_worker.py`) processes it. All the same per-file safety checks still apply.
+- New `GET /api/cleanup/status` (progress) and `POST /api/cleanup/cancel` (stops files not yet processed; already-trashed files stay restorable). Queued operations are `pending` rows, so a server restart marks them failed and the selection can simply be run again. Only one run at a time (409 otherwise).
+- Cleanup page: progress bar with Cancel remaining, preview table capped at 100 rows, thousands-separated counts.
+- 42 backend tests passing (3 new); frontend clean. Not yet run against the real Drive.
+
 ### 2026-11-19 - Keep oldest, trash newer
 - Rule confirmed: in each duplicate group the oldest copy (by created time) is kept, because newer copies are most likely copy-pasted duplicates. New buttons on the Duplicates page, **Trash newer copies (this page)** and **(all groups)**, record that choice in one click (`POST /api/duplicates/apply-suggestions` with `group_ids` or `all_groups`). Individual files can still be adjusted. Choices only; files move to Trash from the Cleanup page.
 - 39 backend tests passing; frontend clean.

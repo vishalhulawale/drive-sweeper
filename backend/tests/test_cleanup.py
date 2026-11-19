@@ -13,6 +13,7 @@ from app.services import cleanup_service as cs
 from app.services import duplicate_detector as dd
 from app.services import oauth_service
 from app.services.google_drive import DriveError
+from app.workers import cleanup_worker
 
 
 class FakeDrive:
@@ -152,12 +153,43 @@ def test_api_requires_trash_scope_and_confirms(env, monkeypatch):
 
     acc.granted_scopes = oauth_service.TRASH_SCOPE
     app.dependency_overrides[get_drive_client] = lambda: drive
+    # Run the background job inline so the test is deterministic.
+    monkeypatch.setattr(
+        cleanup_worker, "start", lambda account_id, c, jobs: cs.process(db, account_id, c, jobs)
+    )
     try:
         assert client.post("/api/cleanup/execute", json={"expected_count": 5}).status_code == 409
         r = client.post("/api/cleanup/execute", json={"expected_count": 1})
-        assert r.status_code == 200 and r.json()[0]["status"] == "completed"
+        assert r.status_code == 202
+        assert client.get("/api/cleanup/status").json()["running"] is False
         ops = client.get("/api/cleanup/operations").json()
         assert ops[0]["file_name"] == "copy1.png"
         assert client.post(f"/api/cleanup/operations/{ops[0]['id']}/restore").json()["status"] == "completed"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_queue_status_cancel_and_second_run_blocked(env):
+    db, acc, drive = env
+    select_action(db, acc, {"t1", "t2"})
+    jobs = cs.prepare(db, acc.id, 2)
+    assert cs.status(db, acc.id) == {"running": True, "total": 2, "remaining": 2}
+    with pytest.raises(cs.RunInProgress):
+        cs.prepare(db, acc.id, 2)
+    assert cs.cancel_pending(db, acc.id) == 2
+    ops = cs.process(db, acc.id, drive, jobs)  # cancelled ops are skipped, nothing reaches Drive
+    assert drive.calls == [] and {o.status for o in ops} == {"cancelled"}
+    assert cs.status(db, acc.id)["running"] is False
+
+
+def test_restart_fails_orphaned_pending_ops(env):
+    db, acc, drive = env
+    select_action(db, acc, {"t1"})
+    cs.prepare(db, acc.id, 1)
+    cs.mark_orphans_interrupted(db)
+    assert not cs.has_pending(db, acc.id)
+    assert cs.build_plan(db, acc.id)["count"] == 1  # selection survives; can run again
+
+
+def test_large_selection_allowed(env):
+    assert cs.MAX_BATCH >= 5000

@@ -38,3 +38,9 @@ class OperationOut(BaseModel):
     created_at: datetime
     completed_at: datetime | None
     error_message: str | None
+
+
+class CleanupStatus(BaseModel):
+    running: bool
+    total: int
+    remaining: int

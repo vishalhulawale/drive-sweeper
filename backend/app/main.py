@@ -9,6 +9,7 @@ from app.api import auth, cleanup, duplicates, files, scans
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.repositories import scan_repository
+from app.services import cleanup_service
 
 logging.basicConfig(level=logging.INFO)
 
@@ -20,6 +21,9 @@ async def lifespan(_app: FastAPI):
         n = scan_repository.mark_running_as_interrupted(db)
         if n:
             logging.getLogger(__name__).warning("Marked %d orphaned scan(s) as interrupted", n)
+        m = cleanup_service.mark_orphans_interrupted(db)
+        if m:
+            logging.getLogger(__name__).warning("Marked %d orphaned cleanup operation(s) as failed", m)
     yield
 
 

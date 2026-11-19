@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas.cleanup import CleanupPlan, ExecuteIn, OperationOut, PlanItem, BlockedGroup
+from app.schemas.cleanup import BlockedGroup, CleanupPlan, CleanupStatus, ExecuteIn, OperationOut, PlanItem
+from app.workers import cleanup_worker
 from app.schemas.files import FileOut
 from app.services import cleanup_service, oauth_service
 from app.services.google_drive import DriveClient
@@ -48,18 +49,30 @@ def plan(db: Session = Depends(get_db)):
     )
 
 
-@router.post("/execute", response_model=list[OperationOut])
+@router.post("/execute", response_model=CleanupStatus, status_code=202)
 def execute(body: ExecuteIn, db: Session = Depends(get_db), client=Depends(get_drive_client)):
+    """Queue the confirmed selection and process it in the background; poll /status for progress."""
     account = _account(db)
     try:
-        ops = cleanup_service.execute(db, account.id, client, body.expected_count)
-    except cleanup_service.PlanChanged as err:
+        jobs = cleanup_service.prepare(db, account.id, body.expected_count)
+    except (cleanup_service.PlanChanged, cleanup_service.RunInProgress) as err:
         raise HTTPException(409, str(err))
     except cleanup_service.TooManyFiles as err:
         raise HTTPException(400, str(err))
-    from app.models import DriveFile
+    cleanup_worker.start(account.id, client, jobs)
+    return cleanup_service.status(db, account.id)
 
-    return [_op_out(op, db.get(DriveFile, op.drive_file_id)) for op in ops]
+
+@router.get("/status", response_model=CleanupStatus)
+def run_status(db: Session = Depends(get_db)):
+    return cleanup_service.status(db, _account(db).id)
+
+
+@router.post("/cancel", response_model=CleanupStatus)
+def cancel(db: Session = Depends(get_db)):
+    """Stop queued files that have not been processed yet. Files already trashed stay trashed (restorable)."""
+    cleanup_service.cancel_pending(db, _account(db).id)
+    return cleanup_service.status(db, _account(db).id)
 
 
 @router.get("/operations", response_model=list[OperationOut])

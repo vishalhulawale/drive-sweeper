@@ -10,7 +10,7 @@ Safety rules (all enforced here, not just in the UI):
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import CleanupOperation, DriveFile, DuplicateGroup, DuplicateGroupFile
@@ -19,7 +19,7 @@ from app.services.google_drive import DriveError
 
 log = logging.getLogger(__name__)
 
-MAX_BATCH = 100
+MAX_BATCH = 10000  # runs happen in the background, so this only guards against absurd selections
 
 
 class PlanChanged(Exception):
@@ -64,16 +64,29 @@ def build_plan(db: Session, account_id: int) -> dict:
     }
 
 
-def execute(db: Session, account_id: int, client, expected_count: int) -> list[CleanupOperation]:
+class RunInProgress(Exception):
+    pass
+
+
+def has_pending(db: Session, account_id: int) -> bool:
+    return db.scalar(
+        select(CleanupOperation.id)
+        .where(CleanupOperation.account_id == account_id, CleanupOperation.status == "pending")
+        .limit(1)
+    ) is not None
+
+
+def prepare(db: Session, account_id: int, expected_count: int) -> list[dict]:
+    """Validate the confirmed plan and queue one pending operation per file. Touches nothing in Drive."""
+    if has_pending(db, account_id):
+        raise RunInProgress("A cleanup run is already in progress")
     plan = build_plan(db, account_id)
     if plan["count"] != expected_count:
         raise PlanChanged(f"Selection changed: expected {expected_count} files, now {plan['count']}")
     if plan["count"] > MAX_BATCH:
         raise TooManyFiles(f"At most {MAX_BATCH} files per cleanup run; {plan['count']} selected")
 
-    keeper_ok: dict[int, str | None] = {}  # group_id -> error message (None = keeper verified)
-    ops: list[CleanupOperation] = []
-
+    jobs = []
     for item in plan["items"]:
         f: DriveFile = item["file"]
         op = CleanupOperation(
@@ -81,17 +94,36 @@ def execute(db: Session, account_id: int, client, expected_count: int) -> list[C
             previous_parent_ids=f.parent_ids,
         )
         db.add(op)
-        db.commit()
+        db.flush()
+        jobs.append({
+            "op_id": op.id, "file_id": f.id, "keeper_id": item["keeper"].id,
+            "md5": item["md5"], "group_id": item["group_id"],
+        })
+    db.commit()
+    return jobs
+
+
+def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[CleanupOperation]:
+    """Carry out queued operations one by one. Safe to cancel: cancelled operations are skipped."""
+    keeper_ok: dict[int, str | None] = {}  # group_id -> error message (None = keeper verified)
+    ops: list[CleanupOperation] = []
+
+    for job in jobs:
+        op = db.get(CleanupOperation, job["op_id"])
+        db.refresh(op)
         ops.append(op)
+        if op.status != "pending":  # cancelled while queued
+            continue
+        f = db.get(DriveFile, job["file_id"])
         try:
-            gid = item["group_id"]
+            gid = job["group_id"]
             if gid not in keeper_ok:
-                keeper_ok[gid] = _check_keeper(client, item["keeper"], item["md5"])
+                keeper_ok[gid] = _check_keeper(client, db.get(DriveFile, job["keeper_id"]), job["md5"])
             if keeper_ok[gid]:
                 _finish(db, op, "skipped", keeper_ok[gid])
                 continue
             live = client.get_file(f.google_file_id)
-            problem = _check_file(live, item["md5"])
+            problem = _check_file(live, job["md5"])
             if problem:
                 _finish(db, op, "skipped", problem)
                 continue
@@ -105,6 +137,51 @@ def execute(db: Session, account_id: int, client, expected_count: int) -> list[C
 
     duplicate_detector.rebuild(db, account_id)
     return ops
+
+
+def execute(db: Session, account_id: int, client, expected_count: int) -> list[CleanupOperation]:
+    """Synchronous prepare + process (used by tests and small runs)."""
+    return process(db, account_id, client, prepare(db, account_id, expected_count))
+
+
+def status(db: Session, account_id: int) -> dict:
+    """Progress of the current run: pending ops and how many were queued with them."""
+    first = db.scalar(
+        select(func.min(CleanupOperation.created_at))
+        .where(CleanupOperation.account_id == account_id, CleanupOperation.status == "pending")
+    )
+    if first is None:
+        return {"running": False, "total": 0, "remaining": 0}
+    rows = db.execute(
+        select(CleanupOperation.status, func.count())
+        .where(CleanupOperation.account_id == account_id, CleanupOperation.operation_type == "trash",
+               CleanupOperation.created_at >= first)
+        .group_by(CleanupOperation.status)
+    ).all()
+    counts = dict(rows)
+    return {"running": True, "total": sum(counts.values()), "remaining": counts.get("pending", 0)}
+
+
+def cancel_pending(db: Session, account_id: int) -> int:
+    ops = list(db.scalars(
+        select(CleanupOperation).where(CleanupOperation.account_id == account_id, CleanupOperation.status == "pending")
+    ))
+    for op in ops:
+        op.status = "cancelled"
+        op.completed_at = _now()
+    db.commit()
+    return len(ops)
+
+
+def mark_orphans_interrupted(db: Session) -> int:
+    """At startup: pending operations whose worker died are failed so a new run can start."""
+    ops = list(db.scalars(select(CleanupOperation).where(CleanupOperation.status == "pending")))
+    for op in ops:
+        op.status = "failed"
+        op.error_message = "Interrupted by a server restart; run Cleanup again."
+        op.completed_at = _now()
+    db.commit()
+    return len(ops)
 
 
 def _check_keeper(client, keeper: DriveFile, md5: str) -> str | None:
@@ -160,7 +237,7 @@ def restore(db: Session, account_id: int, client, op_id: int) -> CleanupOperatio
     return op
 
 
-def history(db: Session, account_id: int, limit: int = 100):
+def history(db: Session, account_id: int, limit: int = 200):
     return db.execute(
         select(CleanupOperation, DriveFile)
         .join(DriveFile, DriveFile.id == CleanupOperation.drive_file_id)

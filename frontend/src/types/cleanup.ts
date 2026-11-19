@@ -14,6 +14,12 @@ export interface CleanupPlan {
   blocked: { group_id: number; reason: string }[]
 }
 
+export interface CleanupStatus {
+  running: boolean
+  total: number
+  remaining: number
+}
+
 export interface Operation {
   id: number
   operation_type: 'trash' | 'restore' | 'move'

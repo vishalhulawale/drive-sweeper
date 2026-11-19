@@ -1,5 +1,6 @@
 import Alert from '@mui/material/Alert'
 import Button from '@mui/material/Button'
+import LinearProgress from '@mui/material/LinearProgress'
 import Chip from '@mui/material/Chip'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -15,20 +16,27 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
 import { useState } from 'react'
-import { useCleanupPlan, useExecuteCleanup, useOperations, useRestore } from '../hooks/useCleanup'
+import {
+  useCancelCleanup, useCleanupPlan, useCleanupStatus, useExecuteCleanup, useOperations, useRestore,
+} from '../hooks/useCleanup'
 import { useAuthStatus } from '../hooks/useGoogleDrive'
 import { authService } from '../services/authService'
 import { errorMessage } from '../services/api'
 import { formatBytes, formatDate } from '../utils/format'
 
+const PREVIEW_ROWS = 100
+
 const STATUS_COLOR: Record<string, 'success' | 'error' | 'warning' | 'default' | 'info'> = {
-  completed: 'success', failed: 'error', skipped: 'warning', restored: 'info', pending: 'default',
+  completed: 'success', failed: 'error', skipped: 'warning', restored: 'info', pending: 'default', cancelled: 'default',
 }
 
 export default function Cleanup() {
   const auth = useAuthStatus()
   const plan = useCleanupPlan()
-  const ops = useOperations()
+  const status = useCleanupStatus()
+  const running = status.data?.running ?? false
+  const ops = useOperations(running)
+  const cancel = useCancelCleanup()
   const execute = useExecuteCleanup()
   const restore = useRestore()
   const [confirming, setConfirming] = useState(false)
@@ -54,6 +62,20 @@ export default function Cleanup() {
         <Alert severity="error">{errorMessage(plan.error ?? execute.error ?? restore.error)}</Alert>
       )}
 
+      {running && status.data && (
+        <Alert
+          severity="info"
+          action={<Button color="inherit" size="small" disabled={cancel.isPending} onClick={() => cancel.mutate()}>Cancel remaining</Button>}
+        >
+          Moving files to Trash: {status.data.total - status.data.remaining} of {status.data.total} done.
+          You can leave this page; it keeps running while the server is up.
+          <LinearProgress
+            variant="determinate" sx={{ mt: 1 }}
+            value={status.data.total ? ((status.data.total - status.data.remaining) / status.data.total) * 100 : 0}
+          />
+        </Alert>
+      )}
+
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
           <Stack sx={{ flex: 1 }}>
@@ -66,7 +88,7 @@ export default function Cleanup() {
           </Stack>
           <Button
             variant="contained" color="warning"
-            disabled={!canTrash || count === 0 || tooMany || execute.isPending}
+            disabled={!canTrash || count === 0 || tooMany || execute.isPending || running}
             onClick={() => setConfirming(true)}
           >
             Move to Trash…
@@ -93,7 +115,7 @@ export default function Cleanup() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {plan.data.items.map((i) => (
+                {plan.data.items.slice(0, PREVIEW_ROWS).map((i) => (
                   <TableRow key={i.file.google_file_id}>
                     <TableCell>{i.file.name}</TableCell>
                     <TableCell>{i.keeper_name}</TableCell>
@@ -102,6 +124,11 @@ export default function Cleanup() {
                 ))}
               </TableBody>
             </Table>
+            {plan.data.items.length > PREVIEW_ROWS && (
+              <Typography variant="caption" color="text.secondary" sx={{ p: 1, display: 'block' }}>
+                Showing the first {PREVIEW_ROWS} of {plan.data.items.length.toLocaleString()} files.
+              </Typography>
+            )}
           </TableContainer>
         )}
       </Paper>
@@ -151,11 +178,11 @@ export default function Cleanup() {
       </TableContainer>
 
       <Dialog open={confirming} onClose={() => setConfirming(false)}>
-        <DialogTitle>Move {count} file{count === 1 ? '' : 's'} to Trash?</DialogTitle>
+        <DialogTitle>Move {count.toLocaleString()} file{count === 1 ? '' : 's'} to Trash?</DialogTitle>
         <DialogContent>
           <Typography>
             {formatBytes(plan.data?.bytes)} will move to your Google Drive Trash. The copy you keep in each
-            group is checked against Drive first. You can restore any file from the history below.
+            group is checked against Drive first. Large selections run in the background and can take a while (roughly a second per file). You can cancel the remainder, and restore any file from the history below.
           </Typography>
         </DialogContent>
         <DialogActions>
