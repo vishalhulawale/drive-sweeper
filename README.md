@@ -140,6 +140,10 @@ Notes: in Testing mode refresh tokens expire after 7 days; the "unverified app" 
 
 Newest first.
 
+### 2026-11-19 - Faster Move to Trash (streaming, 10 parallel Drive calls)
+- A real run measured 240 files a minute (4 a second): every file needs a live re-check and a trash call (about 0.5 s each), only 4 ran at once, and work went in rounds of 40 that each waited for their slowest file.
+- `cleanup_service.process` now streams files through 10 workers with at most 20 in flight; a new file starts as soon as a worker is free. Each group's kept copy is still checked once, and that group's files wait for the result. Cancel skips every file not yet started (at most 20 finish after it). The trash call now asks Drive for only `id,trashed` back. Database work stays on the main thread and the safety checks are unchanged. New test: a keeper that fails its check skips the whole group.
+
 ### 2026-11-19 - UI redesign phase 5: MUI removed, polish
 - Material UI and Emotion are uninstalled; every page is on Cloudscape (`grep -r "@mui" frontend/src` is empty). Removed the leftover `StatCard`, `BarRow`, `ScanStatusChip` and the MUI theme bridge.
 - Smaller app: Geist is now applied by setting Cloudscape's font variables directly instead of through the runtime theming API. The first-load script went from 1.2 MB to 600 KB (273 KB to 179 KB gzipped); all JavaScript together went from 529 KB to 435 KB gzipped, and pages still load on demand.

@@ -8,7 +8,7 @@ Safety rules (all enforced here, not just in the UI):
   * every change is recorded in cleanup_operations so it can be undone.
 """
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -114,55 +114,64 @@ def prepare(db: Session, account_id: int, expected_count: int) -> list[dict]:
     return jobs
 
 
-WORKERS = 4   # parallel Drive calls; Drive throttles sustained writes per user, and backoff handles that
-CHUNK = 40    # operations per round; cancelling takes effect between rounds
+WORKERS = 10    # parallel Drive calls (~20 requests/s, far below the 12,000/min per-user quota); backoff handles throttling
+IN_FLIGHT = 20  # files handed to workers but not finished; Cancel skips everything not yet handed over
 
 
 def process(db: Session, account_id: int, client, jobs: list[dict]) -> list[CleanupOperation]:
-    """Carry out queued operations. Safe to cancel: operations cancelled before their round are skipped.
+    """Carry out queued operations. Safe to cancel: operations cancelled before they are started are skipped.
 
-    Drive calls run on a small thread pool; all database work stays on this thread (the session is not
-    thread-safe), and workers only see plain values (ids, checksums), never ORM objects."""
-    keeper_ok: dict[int, str | None] = {}  # group_id -> error message (None = keeper verified)
+    Files stream through a thread pool (a new one starts as soon as a worker is free, no rounds). All
+    database work stays on this thread (the session is not thread-safe), and workers only see plain
+    values (ids, checksums), never ORM objects. Each group's kept copy is checked once, and every file
+    of that group waits for that check before it is touched."""
+    keeper_checks: dict[int, Future] = {}  # group_id -> future of the error message (None = verified)
+    running: dict[Future, tuple[CleanupOperation, DriveFile]] = {}
     ops: list[CleanupOperation] = []
 
+    def collect() -> None:
+        done, _ = wait(running, return_when=FIRST_COMPLETED)
+        for fut in done:
+            op, f = running.pop(fut)
+            status, error, parents = fut.result()
+            if status == "completed":
+                f.trashed = True
+                f.trashed_time = _now()
+                op.previous_parent_ids = parents or f.parent_ids
+            _finish(db, op, status, error)
+
     with ThreadPoolExecutor(WORKERS) as pool:
-        for start in range(0, len(jobs), CHUNK):
-            live_jobs = []
-            for job in jobs[start:start + CHUNK]:
-                op = db.get(CleanupOperation, job["op_id"])
-                db.refresh(op)
-                ops.append(op)
-                if op.status == "pending":  # not cancelled while queued
-                    live_jobs.append((job, op))
-
-            # Verify each group's kept copy once, before any file of that group is trashed.
-            todo = {}
-            for job, _ in live_jobs:
-                gid = job["group_id"]
-                if gid not in keeper_ok and gid not in todo:
-                    keeper = db.get(DriveFile, job["keeper_id"])
-                    todo[gid] = (keeper.google_file_id, job["keeper_md5"], job.get("keeper_sha256"))
-            for gid, problem in zip(todo, pool.map(lambda args: _check_keeper(client, *args), todo.values())):
-                keeper_ok[gid] = problem
-
-            work = []
-            for job, op in live_jobs:
-                if keeper_ok[job["group_id"]]:
-                    _finish(db, op, "skipped", keeper_ok[job["group_id"]])
-                    continue
-                f = db.get(DriveFile, job["file_id"])
-                work.append((op, f, (f.google_file_id, job["md5"], job.get("sha256"))))
-            results = list(pool.map(lambda w: _trash_one(client, *w[2]), work))
-            for (op, f, _), (status, error, parents) in zip(work, results):
-                if status == "completed":
-                    f.trashed = True
-                    f.trashed_time = _now()
-                    op.previous_parent_ids = parents or f.parent_ids
-                _finish(db, op, status, error)
+        for job in jobs:
+            while len(running) >= IN_FLIGHT:
+                collect()
+            op = db.get(CleanupOperation, job["op_id"])
+            db.refresh(op)
+            ops.append(op)
+            if op.status != "pending":  # cancelled while queued
+                continue
+            gid = job["group_id"]
+            if gid not in keeper_checks:
+                keeper = db.get(DriveFile, job["keeper_id"])
+                keeper_checks[gid] = pool.submit(
+                    _check_keeper, client, keeper.google_file_id, job["keeper_md5"], job.get("keeper_sha256"))
+            f = db.get(DriveFile, job["file_id"])
+            # The keeper check was submitted first and the pool runs tasks in order, so it is already
+            # running or done when a worker picks this up: waiting on it cannot deadlock.
+            fut = pool.submit(_trash_after_keeper, keeper_checks[gid], client,
+                              f.google_file_id, job["md5"], job.get("sha256"))
+            running[fut] = (op, f)
+        while running:
+            collect()
 
     duplicate_detector.refresh_all(db, account_id)
     return ops
+
+
+def _trash_after_keeper(keeper_check: Future, client, google_file_id: str, md5: str, sha256: str | None):
+    problem = keeper_check.result()
+    if problem:
+        return "skipped", problem, None
+    return _trash_one(client, google_file_id, md5, sha256)
 
 
 def _trash_one(client, google_file_id: str, md5: str, sha256: str | None) -> tuple[str, str | None, list | None]:

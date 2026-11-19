@@ -124,7 +124,7 @@ class DriveClient:
 
     def set_trashed(self, file_id: str, trashed: bool) -> dict:
         """Move a file to Trash (or restore it). Recoverable; never a permanent delete."""
-        request = self._service.files().update(fileId=file_id, body={"trashed": trashed}, fields=FILE_FIELDS)
+        request = self._service.files().update(fileId=file_id, body={"trashed": trashed}, fields="id,trashed")
         return self._execute(request)
 
     def move_file(self, file_id: str, add_parent: str, remove_parents: list[str], extra_add: list[str] | None = None) -> dict:

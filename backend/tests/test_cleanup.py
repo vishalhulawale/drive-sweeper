@@ -348,21 +348,31 @@ def test_cleanup_runs_drive_calls_in_parallel(many):
     assert elapsed < 1.6, elapsed
 
 
-def test_cancel_stops_rounds_that_have_not_started(many):
+def test_cancel_stops_files_that_have_not_started(many):
     db, acc, files = many
     cancelled = []
 
     def cancel_once(n):
-        if n == 1 and not cancelled:  # during the first round, the user presses Cancel
+        if n == 1 and not cancelled:  # during the first move to Trash, the user presses Cancel
             with SessionLocal() as other:
                 cancelled.append(cs.cancel_pending(other, acc.id))
 
     drive = SlowDrive(files, delay=0.001, on_trash=cancel_once)
     ops = cs.execute(db, acc.id, drive, 60)
     done = [o for o in ops if o.status == "completed"]
-    assert len(done) == cs.CHUNK                      # the running round finishes...
-    assert len(drive.calls) == cs.CHUNK
+    assert 0 < len(done) <= cs.IN_FLIGHT              # files already started finish...
+    assert len(drive.calls) == len(done)
     assert all(o.status == "cancelled" for o in ops if o not in done)   # ...the rest never starts
+
+
+def test_files_wait_for_their_group_keeper_check(many):
+    """A keeper that fails its live check skips every file of that group, even with files streaming."""
+    db, acc, files = many
+    drive = SlowDrive(files)
+    drive.live["keep"]["trashed"] = True
+    ops = cs.execute(db, acc.id, drive, 60)
+    assert {o.status for o in ops} == {"skipped"}
+    assert drive.calls == []
 
 
 def test_each_thread_gets_its_own_api_client(monkeypatch):
