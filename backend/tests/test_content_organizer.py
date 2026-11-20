@@ -247,7 +247,20 @@ def test_local_messages_carry_each_files_images():
     page = Image.open(io.BytesIO(__import__("base64").b64decode(msgs[3]["images"][0])))
     assert page.format == "JPEG" and max(page.size) == cc.LOCAL_IMAGE_SIZE
     assert "judge by the name" in msgs[4]["content"] and "images" not in msgs[4]  # unreadable scan
-    assert "4 files" in msgs[5]["content"]
+    assert "4 files" in msgs[5]["content"] and "existing folders" in msgs[5]["content"]
+
+
+def test_image_previews_are_shrunk_for_a_local_model():
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (800, 400), "white").save(buf, "PNG")
+    small = Image.open(io.BytesIO(cc.shrink_image(buf.getvalue())))
+    assert small.format == "JPEG" and small.size == (cc.LOCAL_IMAGE_SIZE, cc.LOCAL_IMAGE_SIZE // 2)
+    tiny = io.BytesIO()
+    Image.new("RGB", (100, 100)).save(tiny, "PNG")
+    assert cc.shrink_image(tiny.getvalue()) == tiny.getvalue()   # already small: sent as is
+    assert cc.shrink_image(b"\xff\xd8") == b"\xff\xd8"           # unreadable: sent as is
 
 
 def test_local_classify_parses_and_survives_bad_json():

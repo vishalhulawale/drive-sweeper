@@ -60,8 +60,9 @@ MIN_TEXT_CHARS = 80                # less text than this counts as "no text laye
 PREVIEW_SIZE = 800                 # image preview size (pixels, longest side)
 BATCH_SIZE = 8                     # files per Claude request
 LOCAL_BATCH_SIZE = 4               # files per request to a local model (small models lose track in long batches)
-LOCAL_TEXT_CHARS = 2000            # of each file's text sent to a local model: enough for the topic, fast on a CPU
-LOCAL_IMAGE_SIZE = 1024           # a scanned PDF page sent to a local model (pixels, longest side)
+LOCAL_TEXT_CHARS = 1200            # of each file's text sent to a local model: enough for the topic, fast on a CPU
+LOCAL_IMAGE_SIZE = 640             # an image or scanned page sent to a local model (pixels, longest side): Qwen
+                                   # spends a token per 32x32 pixels, so this keeps an image near 400 tokens
 FETCH_WORKERS = 4                  # files read from Drive in parallel
 AI_WORKERS = 2                     # Claude requests in parallel
 MAX_FOLDER_NAMES = 300             # existing folder names listed in the prompt
@@ -295,7 +296,6 @@ def _pdf_excerpt(data: bytes) -> Excerpt | None:
 
 def scan_images(data: bytes, pages: int = SCAN_PAGES) -> list[bytes]:
     """The page images of a scanned PDF as JPEGs, for a local model (which cannot read a PDF)."""
-    from PIL import Image
     from pypdf import PdfReader
 
     out = []
@@ -303,12 +303,32 @@ def scan_images(data: bytes, pages: int = SCAN_PAGES) -> list[bytes]:
         imgs = [i.image for i in page.images if i.image is not None]
         if not imgs:
             continue
-        img = max(imgs, key=lambda i: i.width * i.height).convert("RGB")  # the scan itself, not a logo
-        img.thumbnail((LOCAL_IMAGE_SIZE, LOCAL_IMAGE_SIZE), Image.Resampling.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, "JPEG", quality=85)
-        out.append(buf.getvalue())
+        out.append(_local_jpeg(max(imgs, key=lambda i: i.width * i.height)))  # the scan itself, not a logo
     return out
+
+
+def _local_jpeg(img) -> bytes:
+    """An image as a JPEG no larger than LOCAL_IMAGE_SIZE: image tokens dominate a local model's time on a CPU."""
+    from PIL import Image
+
+    img = img.convert("RGB")
+    img.thumbnail((LOCAL_IMAGE_SIZE, LOCAL_IMAGE_SIZE), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=85)
+    return buf.getvalue()
+
+
+def shrink_image(data: bytes) -> bytes:
+    """A Drive preview made small enough for a local model; returned as is when it cannot be read."""
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            if max(img.size) <= LOCAL_IMAGE_SIZE:
+                return data
+            return _local_jpeg(img)
+    except Exception:
+        return data
 
 
 def excerpt_of(client, f) -> Excerpt:
@@ -386,7 +406,7 @@ def local_messages(system: str, items: list[tuple], parent_names: dict) -> list[
             text = f"{head}<content>\n{(ex.text or '(empty)')[:LOCAL_TEXT_CHARS]}\n</content>\n</file>"
         elif ex.kind in ("image", "pdf"):
             if ex.kind == "image":
-                images = [ex.data]
+                images = [shrink_image(ex.data)]
             else:
                 try:
                     images = scan_images(ex.data)
@@ -400,8 +420,10 @@ def local_messages(system: str, items: list[tuple], parent_names: dict) -> list[
         if images:
             msg["images"] = [base64.standard_b64encode(i).decode("ascii") for i in images]
         messages.append(msg)
+    # Small models follow the last message best, so the rule they most often drop is repeated here.
     messages.append({"role": "user", "content": f"Choose a folder for each of the {len(items)} files above, "
-                     "with one entry per file id."})
+                     "with one entry per file id. Use one of the person's existing folders whenever it fits the "
+                     "topic, spelled exactly as listed."})
     return messages
 
 

@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Ollama: the server and a small vision model (it reads text excerpts and image previews). docker-compose.yml
     # runs Ollama and pulls the model. num_ctx fits a batch of four excerpts, their images and the folder list.
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "gemma3:4b"
+    ollama_model: str = "qwen3-vl:2b-instruct"  # 2B and not a thinking model: quick on a CPU
     ollama_num_ctx: int = 8192
     ollama_keep_alive: str = "30m"  # how long the model stays loaded after a request
     # Claude. The Anthropic SDK also finds credentials on its own (ANTHROPIC_API_KEY in the environment or an
