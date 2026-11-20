@@ -77,10 +77,11 @@ const HELP: Record<PageKey, { header: string; body: ReactNode }> = {
     body: (
       <>
         <p>
-          Suggestions for moving loose files into folders. <strong>By content</strong> has Claude read a short excerpt
+          Suggestions for moving loose files into folders. <strong>By content</strong> has a language model read a short excerpt
           of each file (text, the first pages of a scanned PDF, or a small image preview) and pick a topic folder such as
           Medical or Education. A folder you already have with that name is reused; otherwise it is created at the top of
-          your Drive when you move. This needs an Anthropic API key on the backend, and the excerpts are sent to the Claude API.
+          your Drive when you move. By default the model runs locally in Ollama, so the excerpts never leave your machine; the
+          backend can be set to use Claude instead.
         </p>
         <p>
           <strong>By file patterns</strong> uses only file types, dates and names to match files to existing folders that

@@ -16,7 +16,7 @@ class Suggestion(BaseModel):
     score: float
     confidence: Literal["high", "medium"]
     reasons: list[str]
-    summary: str | None = None  # content suggestions: what Claude says the file is
+    summary: str | None = None  # content suggestions: what the model says the file is
 
 
 class SuggestionPage(BaseModel):
@@ -38,7 +38,8 @@ class MoveIn(BaseModel):
 
 
 class ContentStatus(BaseModel):
-    configured: bool  # an Anthropic credential is visible to the backend
+    configured: bool  # the local model is pulled and answering, or a Claude credential is visible
+    provider: str = "ollama"  # "ollama", "anthropic" or "foundry"
     running: bool
     last_error: str | None
     last_result: dict | None

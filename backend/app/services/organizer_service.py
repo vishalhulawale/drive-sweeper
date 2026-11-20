@@ -169,7 +169,7 @@ def folders_by_name(files: list) -> dict[str, object]:
 
 
 def propose_by_content(files: list, source: str = "root", limit: int = 200) -> list[dict]:
-    """Suggestions from the topics Claude picked (see content_classifier). Files whose topic is missing,
+    """Suggestions from the topics the model picked (see content_classifier). Files whose topic is missing,
     out of date or low confidence are left out."""
     from app.services import content_classifier as cc
 
@@ -182,7 +182,7 @@ def propose_by_content(files: list, source: str = "root", limit: int = 200) -> l
         folder = by_name.get(topic.casefold())
         if folder is not None and folder.google_file_id in (f.parent_folder_id, f.google_file_id):
             continue  # already there
-        reasons = [f'Claude read the file and chose the topic "{topic}"']
+        reasons = [f'The content analysis read the file and chose the topic "{topic}"']
         if f.topic_summary:
             reasons.insert(0, f.topic_summary)
         reasons.append(f'Moves into your existing folder "{folder.name}"' if folder is not None

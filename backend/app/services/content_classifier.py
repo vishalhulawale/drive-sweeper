@@ -1,24 +1,28 @@
-"""Content classifier: read a short excerpt of each loose file and ask Claude which topic folder it belongs in.
+"""Content classifier: read a short excerpt of each loose file and ask a language model which topic folder it
+belongs in. The model is a small local one served by Ollama (the default: nothing leaves the machine) or Claude
+(the Claude API or Microsoft Foundry), chosen with CLASSIFIER_PROVIDER.
 
-This is the one organizer feature that looks inside files, and it is opt-in (an Anthropic API key and a click
-on "Analyze contents"). For each file it takes a small excerpt, kept in memory only:
+This is the one organizer feature that looks inside files, and it is opt-in (a click on "Analyze contents").
+For each file it takes a small excerpt, kept in memory only:
 
 - Google Docs/Slides are exported as plain text and Sheets as CSV, then cut to the first few thousand characters;
 - PDFs are downloaded (up to MAX_PDF_BYTES) and their text read locally; a scanned PDF without text is cut to its
-  first pages, which are sent as a PDF so Claude can read the scan;
+  first pages, which are sent as a PDF so the model can read the scan (to a local model, as page images);
 - Word files are downloaded and their text read locally; plain text files are read up to MAX_TEXT_BYTES;
 - images go as a small Drive preview (the original is never downloaded);
 - anything else is judged by its name alone.
 
-The excerpt, file name, type and date go to the Claude API; only the result (a folder name, a one-line summary and
+The excerpt, file name, type and date go to the model; only the result (a folder name, a one-line summary and
 a confidence) is stored, on the file's row. Files are sent a few at a time to keep the number of requests low.
 """
 import base64
 import io
+import json
 import logging
 import os
 import re
 import threading
+import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -55,6 +59,9 @@ SCAN_PAGES = 2                     # pages sent as a PDF when there is no text l
 MIN_TEXT_CHARS = 80                # less text than this counts as "no text layer"
 PREVIEW_SIZE = 800                 # image preview size (pixels, longest side)
 BATCH_SIZE = 8                     # files per Claude request
+LOCAL_BATCH_SIZE = 4               # files per request to a local model (small models lose track in long batches)
+LOCAL_TEXT_CHARS = 2000            # of each file's text sent to a local model: enough for the topic, fast on a CPU
+LOCAL_IMAGE_SIZE = 1024           # a scanned PDF page sent to a local model (pixels, longest side)
 FETCH_WORKERS = 4                  # files read from Drive in parallel
 AI_WORKERS = 2                     # Claude requests in parallel
 MAX_FOLDER_NAMES = 300             # existing folder names listed in the prompt
@@ -133,8 +140,17 @@ def needs_topic(f) -> bool:
     return f.topic_key != topic_key(f) or f.topic_attempted_at is None
 
 
+def provider() -> str:
+    """"ollama" (a local model), "anthropic" (the Claude API) or "foundry" (Claude in Microsoft Foundry)."""
+    return settings.classifier_provider.strip().lower() or "ollama"
+
+
 def _foundry() -> bool:
-    return settings.classifier_provider.strip().lower() == "foundry"
+    return provider() == "foundry"
+
+
+def _ollama() -> bool:
+    return provider() == "ollama"
 
 
 def _setting_or_env(value: str, env: str) -> str | None:
@@ -142,15 +158,23 @@ def _setting_or_env(value: str, env: str) -> str | None:
 
 
 def configured() -> bool:
-    """Whether credentials for the chosen provider are visible. On the Claude API an `ant auth login` profile
+    """Whether the chosen provider can be used. For Ollama: the server answers and has the model pulled.
+    For Claude: whether credentials are visible. On the Claude API an `ant auth login` profile
     also works but cannot be detected cheaply, so this only drives a hint in the UI; a missing credential
     fails the run with a clear error."""
+    if _ollama():
+        return OllamaClient().ready()
     if _foundry():
         key = _setting_or_env(settings.anthropic_foundry_api_key, "ANTHROPIC_FOUNDRY_API_KEY")
         where = (_setting_or_env(settings.anthropic_foundry_resource, "ANTHROPIC_FOUNDRY_RESOURCE")
                  or _setting_or_env(settings.anthropic_foundry_base_url, "ANTHROPIC_FOUNDRY_BASE_URL"))
         return bool(key and where)
     return bool(settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+
+
+def ai_client():
+    """The client for the chosen provider, passed to run()."""
+    return OllamaClient() if _ollama() else anthropic_client()
 
 
 def anthropic_client():
@@ -183,6 +207,54 @@ def request_options() -> dict:
         opts["betas"] = ["server-side-fallback-2026-07-01"]
         opts["fallbacks"] = "default"
     return opts
+
+
+class OllamaError(RuntimeError):
+    pass
+
+
+class OllamaClient:
+    """A local model served by Ollama (https://ollama.com), asked for JSON matching TopicResult."""
+
+    _ready_cache: dict[tuple, tuple[float, bool]] = {}
+
+    def __init__(self, base_url: str | None = None, model: str | None = None):
+        self.base_url = (base_url or settings.ollama_base_url).rstrip("/")
+        self.model = model or settings.ollama_model
+
+    def ready(self) -> bool:
+        """The server answers and the model is pulled. Cached briefly, since the UI polls the status."""
+        import httpx
+
+        key = (self.base_url, self.model)
+        hit = self._ready_cache.get(key)
+        if hit and time.monotonic() - hit[0] < 15:
+            return hit[1]
+        try:
+            tags = httpx.get(f"{self.base_url}/api/tags", timeout=2).json().get("models", [])
+            names = {m.get("name") for m in tags} | {m.get("model") for m in tags}
+            ok = self.model in names or f"{self.model}:latest" in names
+        except Exception:
+            ok = False
+        self._ready_cache[key] = (time.monotonic(), ok)
+        return ok
+
+    def chat(self, messages: list[dict], schema: dict) -> str:
+        import httpx
+
+        try:
+            r = httpx.post(f"{self.base_url}/api/chat", timeout=600, json={
+                "model": self.model, "messages": messages, "format": schema, "stream": False,
+                "keep_alive": settings.ollama_keep_alive,
+                "options": {"temperature": 0, "num_ctx": settings.ollama_num_ctx},
+            })
+        except httpx.HTTPError as err:
+            raise OllamaError(f"Ollama is not reachable at {self.base_url}: {err}") from err
+        if r.status_code == 404:
+            raise OllamaError(f'Ollama has no model "{self.model}"; pull it with `ollama pull {self.model}`')
+        if r.status_code >= 400:
+            raise OllamaError(f"Ollama answered {r.status_code}: {r.text[:300]}")
+        return r.json().get("message", {}).get("content", "")
 
 
 # ---- excerpts ---------------------------------------------------------------------------------------
@@ -221,6 +293,24 @@ def _pdf_excerpt(data: bytes) -> Excerpt | None:
     return Excerpt("pdf", data=out.getvalue(), media_type=PDF)
 
 
+def scan_images(data: bytes, pages: int = SCAN_PAGES) -> list[bytes]:
+    """The page images of a scanned PDF as JPEGs, for a local model (which cannot read a PDF)."""
+    from PIL import Image
+    from pypdf import PdfReader
+
+    out = []
+    for page in PdfReader(io.BytesIO(data)).pages[:pages]:
+        imgs = [i.image for i in page.images if i.image is not None]
+        if not imgs:
+            continue
+        img = max(imgs, key=lambda i: i.width * i.height).convert("RGB")  # the scan itself, not a logo
+        img.thumbnail((LOCAL_IMAGE_SIZE, LOCAL_IMAGE_SIZE), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=85)
+        out.append(buf.getvalue())
+    return out
+
+
 def excerpt_of(client, f) -> Excerpt:
     """What Claude gets to see of one file. Falls back to the name when the contents cannot be read."""
     mime, size = f.mime_type, f.size or 0
@@ -249,7 +339,7 @@ def excerpt_of(client, f) -> Excerpt:
     return Excerpt("name")
 
 
-# ---- the Claude request -----------------------------------------------------------------------------
+# ---- the model request -----------------------------------------------------------------------------
 
 
 def system_prompt(folder_names: list[str]) -> str:
@@ -258,12 +348,16 @@ def system_prompt(folder_names: list[str]) -> str:
     return SYSTEM_PROMPT.format(standard=", ".join(STANDARD_TOPICS), folders=listing)
 
 
-def _file_blocks(n: int, f, ex: Excerpt, parent_name: str | None) -> list[dict]:
+def _file_head(n: int, f, parent_name: str | None) -> str:
     when = f.modified_time or f.created_time
     head = f'<file id="{n}">\nName: {f.name}\nType: {f.mime_type}\n'
     if when:
         head += f"Modified: {when:%Y-%m-%d}\n"
-    head += f"Currently in: {parent_name or 'top level of My Drive'}\n"
+    return head + f"Currently in: {parent_name or 'top level of My Drive'}\n"
+
+
+def _file_blocks(n: int, f, ex: Excerpt, parent_name: str | None) -> list[dict]:
+    head = _file_head(n, f, parent_name)
     if ex.kind == "text":
         return [{"type": "text", "text": f"{head}<content>\n{ex.text or '(empty)'}\n</content>\n</file>"}]
     if ex.kind == "name":
@@ -278,8 +372,53 @@ def _file_blocks(n: int, f, ex: Excerpt, parent_name: str | None) -> list[dict]:
     ]
 
 
+def batch_size(ai) -> int:
+    return LOCAL_BATCH_SIZE if isinstance(ai, OllamaClient) else BATCH_SIZE
+
+
+def local_messages(system: str, items: list[tuple], parent_names: dict) -> list[dict]:
+    """Ollama chat messages: one per file, so each image travels with the file it belongs to."""
+    messages = [{"role": "system", "content": system}]
+    for n, (f, ex) in enumerate(items, 1):
+        head = _file_head(n, f, parent_names.get(f.parent_folder_id))
+        images: list[bytes] = []
+        if ex.kind == "text":
+            text = f"{head}<content>\n{(ex.text or '(empty)')[:LOCAL_TEXT_CHARS]}\n</content>\n</file>"
+        elif ex.kind in ("image", "pdf"):
+            if ex.kind == "image":
+                images = [ex.data]
+            else:
+                try:
+                    images = scan_images(ex.data)
+                except Exception as err:
+                    log.info("Could not read the scan of %s: %s: %s", f.google_file_id, type(err).__name__, err)
+            label = "Preview of the image is attached." if ex.kind == "image" else "Images of the first pages are attached."
+            text = f"{head}{label}\n</file>"
+        if ex.kind == "name" or (ex.kind == "pdf" and not images):
+            text = f"{head}(Contents could not be read; judge by the name.)\n</file>"
+        msg = {"role": "user", "content": text}
+        if images:
+            msg["images"] = [base64.standard_b64encode(i).decode("ascii") for i in images]
+        messages.append(msg)
+    messages.append({"role": "user", "content": f"Choose a folder for each of the {len(items)} files above, "
+                     "with one entry per file id."})
+    return messages
+
+
+def _classify_local(ai: "OllamaClient", system: str, items: list[tuple], parent_names: dict) -> dict[int, TopicChoice]:
+    reply = ai.chat(local_messages(system, items, parent_names), TopicResult.model_json_schema())
+    try:
+        parsed = TopicResult.model_validate(json.loads(reply))
+    except Exception as err:  # a small model can still go off the rails; these files are tried again later
+        log.warning("The local model gave an unusable answer for %d files: %s", len(items), err)
+        return {}
+    return {c.id: c for c in parsed.files if 1 <= c.id <= len(items) and c.folder.strip()}
+
+
 def classify_batch(ai, system: str, items: list[tuple], parent_names: dict) -> dict[int, TopicChoice]:
     """items: [(DriveFile, Excerpt)]. Returns choices keyed by the item's position (1-based)."""
+    if isinstance(ai, OllamaClient):
+        return _classify_local(ai, system, items, parent_names)
     content = []
     for n, (f, ex) in enumerate(items, 1):
         content += _file_blocks(n, f, ex, parent_names.get(f.parent_folder_id))
@@ -326,18 +465,19 @@ def run(session_factory, drive, ai, account_id: int, source: str, cancel: thread
     if progress:
         progress(0, len(todo))
 
+    size = batch_size(ai)
     with ThreadPoolExecutor(FETCH_WORKERS) as fetchers, ThreadPoolExecutor(AI_WORKERS) as asker:
-        for start in range(0, len(todo), BATCH_SIZE * AI_WORKERS):
+        for start in range(0, len(todo), size * AI_WORKERS):
             if cancel.is_set():
                 break
             with session_factory() as db:
-                rows = list(db.scalars(select(DriveFile).where(DriveFile.id.in_(todo[start:start + BATCH_SIZE * AI_WORKERS]))))
+                rows = list(db.scalars(select(DriveFile).where(DriveFile.id.in_(todo[start:start + size * AI_WORKERS]))))
                 db.expunge_all()
             excerpts = list(fetchers.map(lambda f: None if cancel.is_set() else excerpt_of(drive, f), rows))
             if cancel.is_set():
                 break
             pairs = list(zip(rows, excerpts))
-            batches = [pairs[i:i + BATCH_SIZE] for i in range(0, len(pairs), BATCH_SIZE)]
+            batches = [pairs[i:i + size] for i in range(0, len(pairs), size)]
             results = list(asker.map(lambda b: classify_batch(ai, system, b, parent_names), batches))
             now = datetime.now(timezone.utc)
             updates = []

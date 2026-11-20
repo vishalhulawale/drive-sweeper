@@ -11,7 +11,7 @@ DriveClean scans your Drive's metadata into a local PostgreSQL database, finds e
 - **Manual cleanup**: you mark files for Trash, and DriveClean re-checks every file live against Drive before moving it. At least one copy of each group is always kept, and every action is recorded and can be restored.
 - **Storage analytics**: usage by file type and year, the largest files, and a folder treemap.
 - **Trash overview**: how much space Trash uses and when Drive will delete each item.
-- **File organizer**: sorts loose files into topic folders by what they contain (hospital records into Medical, mark sheets into Education), using Claude to read a short excerpt of each file. Existing folders are reused and missing ones are created when you move. Without an Anthropic API key, it suggests existing folders from file types, dates and naming patterns instead. Moves can be undone.
+- **File organizer**: sorts loose files into topic folders by what they contain (hospital records into Medical, mark sheets into Education), using a small local model (in Ollama, so nothing leaves your machine) or Claude to read a short excerpt of each file. Existing folders are reused and missing ones are created when you move. Without a model, it suggests existing folders from file types, dates and naming patterns instead. Moves can be undone.
 - **Archives**: extracts zip, rar and tar files into a new folder with the archive's name, next to the archive, several archives at a time, uploading many files in parallel (`ARCHIVE_UPLOAD_WORKERS`, default 12). Every uploaded file is checked against the extracted one, and only then does the archive move to Trash (restorable). An interrupted or cancelled extraction continues where it stopped.
 - **Incremental sync**: after the first full scan, the Drive Changes API keeps the inventory current in seconds. It runs on a schedule and when you open the review pages.
 
@@ -23,7 +23,7 @@ React frontend ──REST──> FastAPI backend ──> Google Drive API v3
                               └──> PostgreSQL (metadata, scan state, duplicate groups, history)
 ```
 
-Google Drive stays the source of truth. The database stores metadata only, never file contents. Two features read file contents, and only when you start them. Archive extraction downloads each chosen archive to the server, unpacks it one file at a time into a temporary folder that is removed afterwards, and uploads the files. The organizer's content analysis sends each file's name and a short excerpt (a few thousand characters of text, the first pages of a scanned PDF, or a small image preview) to the Claude API and keeps only the chosen folder and a one-line summary. Scans are resumable, and long jobs (scans, photo analysis, cleanup runs) run in background threads with progress and cancel.
+Google Drive stays the source of truth. The database stores metadata only, never file contents. Two features read file contents, and only when you start them. Archive extraction downloads each chosen archive to the server, unpacks it one file at a time into a temporary folder that is removed afterwards, and uploads the files. The organizer's content analysis sends each file's name and a short excerpt (a few thousand characters of text, the first pages of a scanned PDF, or a small image preview) to the configured model (by default a local one in Docker, otherwise the Claude API) and keeps only the chosen folder and a one-line summary. Scans are resumable, and long jobs (scans, photo analysis, cleanup runs) run in background threads with progress and cancel.
 
 **Safety rules**, enforced in the backend:
 
@@ -39,7 +39,7 @@ Google Drive stays the source of truth. The database stores metadata only, never
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS, TanStack Query |
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2, Alembic |
 | Database | PostgreSQL 16 |
-| Integration | Google Drive API v3, Google OAuth 2.0, Claude API (optional, for content-based organizing) |
+| Integration | Google Drive API v3, Google OAuth 2.0, Ollama with Gemma 3 4B or the Claude API (for content-based organizing) |
 
 ## Getting started
 
@@ -74,12 +74,13 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 Put the output in `TOKEN_ENCRYPTION_KEY`. Never commit `backend/.env`.
 
-To sort files by content, also give the backend access to Claude, in one of two ways:
+To sort files by content, the backend uses a language model, in one of three ways:
 
+- **Local model (default)**: `CLASSIFIER_PROVIDER=ollama`. Docker Compose runs [Ollama](https://ollama.com) on port 11434 and pulls `gemma3:4b` (about 3.3 GB, once), a small model that reads text and images, so scanned PDFs and photos are classified too. It needs about 4 GB of free RAM and runs on the CPU; on a machine with an NVIDIA GPU, uncomment `gpus: all` in `docker-compose.yml` for a large speedup. To use another Ollama model, set `OLLAMA_MODEL` both in `backend/.env` and in the shell (or a top-level `.env`) for `docker compose`. A vision model is needed for images; `qwen2.5vl:3b` is a smaller alternative. Files are sent four per request.
 - **Claude API**: set `ANTHROPIC_API_KEY` (from the [Claude Console](https://platform.claude.com/)). `CLASSIFIER_MODEL` defaults to `claude-opus-5-5`.
 - **Microsoft Foundry**: set `CLASSIFIER_PROVIDER=foundry`, `CLASSIFIER_MODEL` to your deployment name (for example `claude-haiku-4-5`), `ANTHROPIC_FOUNDRY_RESOURCE` (the `<resource>` in `https://<resource>.services.ai.azure.com`) and `ANTHROPIC_FOUNDRY_API_KEY`.
 
-Requests use low thinking effort where the model supports it (Claude Haiku 4.5 and Sonnet 4.5 do not; if your deployment of one of them has another name, set `CLASSIFIER_EFFORT=` to leave effort out). Each analysis run is billed to that account: files are sent eight per request, and each file is read again only after it changes.
+With Claude, requests use low thinking effort where the model supports it (Claude Haiku 4.5 and Sonnet 4.5 do not; if your deployment of one of them has another name, set `CLASSIFIER_EFFORT=` to leave effort out). Each analysis run is billed to that account: files are sent eight per request, and each file is read again only after it changes.
 
 ### Run with Docker
 
@@ -87,13 +88,13 @@ Requests use low thinking effort where the model supports it (Claude Haiku 4.5 a
 docker compose up -d --build
 ```
 
-This starts PostgreSQL, the backend on port 8000 (migrations run on start) and the frontend on port 5173. Open http://localhost:5173, connect your Google account and run a full scan.
+This starts PostgreSQL, Ollama (and pulls the model on the first run), the backend on port 8000 (migrations run on start) and the frontend on port 5173. Open http://localhost:5173, connect your Google account and run a full scan.
 
 ### Run locally
 
 ```bash
-# Database
-docker compose up -d db
+# Database and the local model
+docker compose up -d db ollama ollama-pull
 
 # Backend
 cd backend

@@ -93,6 +93,7 @@ function ContentAnalysis({ source, canRead }: { source: string; canRead: boolean
   const { notify } = useNotify()
   const s = status.data
   if (!s) return null
+  const local = s.provider === 'ollama'
   const begin = () =>
     start.mutate(source, {
       onError: (e) => notify({ id: 'org-content', type: 'error', header: "Couldn't start the analysis", content: errorMessage(e) }),
@@ -101,7 +102,7 @@ function ContentAnalysis({ source, canRead }: { source: string; canRead: boolean
   return (
     <Panel
       title="Content analysis"
-      description="Claude reads a short excerpt of each loose file and picks a topic folder for it, such as Medical or Education."
+      description={`${local ? 'A local model' : 'Claude'} reads a short excerpt of each loose file and picks a topic folder for it, such as Medical or Education.`}
       actions={
         s.running ? (
           <Button loading={cancel.isPending} onClick={() => cancel.mutate(source)}>Stop</Button>
@@ -113,7 +114,13 @@ function ContentAnalysis({ source, canRead }: { source: string; canRead: boolean
       }
     >
       <div className="flex flex-col gap-4">
-        {!s.configured && (
+        {!s.configured && local && (
+          <Alert type="info" header="The local model is not ready">
+            Start Ollama and pull the model with <code>docker compose up -d ollama ollama-pull</code> (the first pull downloads
+            about 3 GB). It shows as ready here once the download finishes.
+          </Alert>
+        )}
+        {!s.configured && !local && (
           <Alert type="info" header="Claude is not set up">
             Set <code>ANTHROPIC_API_KEY</code>, or the Microsoft Foundry settings (<code>CLASSIFIER_PROVIDER=foundry</code>,{' '}
             <code>ANTHROPIC_FOUNDRY_RESOURCE</code>, <code>ANTHROPIC_FOUNDRY_API_KEY</code>), in <code>backend/.env</code> and restart
@@ -145,7 +152,8 @@ function ContentAnalysis({ source, canRead }: { source: string; canRead: boolean
         )}
         <Secondary className="text-xs">
           For each file, its name and an excerpt (the first few thousand characters of text, the first pages of a scanned PDF,
-          or a small preview of an image) are sent to the Claude API. Only the chosen folder and a one-line summary are kept.
+          or a small preview of an image) {local ? 'are read by the model running on this machine and never leave it' : 'are sent to the Claude API'}.
+          Only the chosen folder and a one-line summary are kept.
           Files are read again only after they change.
         </Secondary>
       </div>
@@ -296,7 +304,7 @@ export default function Organizer() {
             empty={
               method === 'content' ? (
                 <EmptyState title="No suggestions yet">
-                  Analyze the loose files above. Files Claude could not place with confidence are left out.
+                  Analyze the loose files above. Files the model could not place with confidence are left out.
                 </EmptyState>
               ) : (
                 <EmptyState title="No confident suggestions">

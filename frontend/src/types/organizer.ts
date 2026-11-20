@@ -11,7 +11,7 @@ export interface Suggestion {
   score: number
   confidence: 'high' | 'medium'
   reasons: string[]
-  /** Content suggestions: what Claude says the file is. */
+  /** Content suggestions: what the model says the file is. */
   summary: string | null
 }
 
@@ -29,6 +29,8 @@ export interface Move {
 
 export interface ContentStatus {
   configured: boolean
+  /** Which model reads the excerpts: a local one in Ollama, or Claude. */
+  provider: 'ollama' | 'anthropic' | 'foundry'
   running: boolean
   last_error: string | null
   last_result: { classified: number; unclassified: number; total: number; cancelled: boolean } | null

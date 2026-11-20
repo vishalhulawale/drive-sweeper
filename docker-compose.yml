@@ -1,4 +1,5 @@
-# Local development: `docker compose up -d db` starts only PostgreSQL (run backend and frontend natively).
+# Local development: `docker compose up -d db ollama ollama-pull` starts PostgreSQL and the local model
+# (run backend and frontend natively).
 # Whole app in containers: `docker compose up -d --build` (needs backend/.env, see README).
 # The ports match the native setup, so the Google OAuth origin and redirect URI stay the same.
 services:
@@ -24,10 +25,13 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://driveclean:driveclean@db:5432/driveclean
       FRONTEND_ORIGIN: http://localhost:5173
+      OLLAMA_BASE_URL: http://ollama:11434
     ports:
       - "8000:8000"
     depends_on:
       db:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     restart: unless-stopped
 
@@ -42,5 +46,38 @@ services:
       - backend
     restart: unless-stopped
 
+  # The organizer's content classifier: a small local model, so file excerpts never leave the machine.
+  ollama:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_NUM_PARALLEL: "2"        # the backend sends two requests at a time
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: 30m
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    # With an NVIDIA GPU (Docker Desktop on WSL 2, or the NVIDIA Container Toolkit), uncomment for ~10x speed:
+    # gpus: all
+
+  # Pulls the model once (about 3.3 GB for gemma3:4b) and exits; later runs only check it is there.
+  # Set OLLAMA_MODEL in the shell or a top-level .env to pull another one, and the same in backend/.env.
+  ollama-pull:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-gemma3:4b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
 volumes:
   pgdata:
+  ollama:

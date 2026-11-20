@@ -1,4 +1,5 @@
-"""Organizer suggestions by file content: excerpts, the Claude request, topic suggestions, new folders."""
+"""Organizer suggestions by file content: excerpts, the model requests (Claude and local), topic suggestions,
+new folders."""
 import io
 import threading
 import uuid
@@ -197,6 +198,100 @@ def test_refusal_leaves_files_unclassified():
     assert cc.classify_batch(ai, "sys", [(f("a", "x.pdf"), cc.Excerpt("name"))], {}) == {}
 
 
+# ---- the local model (Ollama) ---------------------------------------------------------------------
+
+
+class FakeOllama(cc.OllamaClient):
+    """An OllamaClient that answers from a dict by file name instead of calling the server."""
+
+    def __init__(self, answers, reply=None):
+        super().__init__("http://ollama.test", "gemma3:4b")
+        self.answers, self.reply, self.calls = answers, reply, []
+        self.lock = threading.Lock()
+
+    def chat(self, messages, schema):
+        with self.lock:
+            self.calls.append((messages, schema))
+        if self.reply is not None:
+            return self.reply
+        files = []
+        for m in messages[1:-1]:
+            n = int(m["content"].split('<file id="')[1].split('"', 1)[0])
+            name = m["content"].split("Name: ", 1)[1].split("\n", 1)[0]
+            if name in self.answers:
+                folder, conf = self.answers[name]
+                files.append({"id": n, "folder": folder, "confidence": conf, "summary": f"About {name}"})
+        return cc.TopicResult(files=files).model_dump_json()
+
+
+def scanned_pdf(pages=1) -> bytes:
+    from PIL import Image
+
+    out = io.BytesIO()
+    imgs = [Image.new("RGB", (2000, 2800), "white") for _ in range(pages)]
+    imgs[0].save(out, "PDF", save_all=True, append_images=imgs[1:])
+    return out.getvalue()
+
+
+def test_local_messages_carry_each_files_images():
+    rows = [(f("a", "bill.pdf"), cc.Excerpt("text", text="Invoice from City Hospital")),
+            (f("b", "IMG_1.jpg", mime="image/jpeg"), cc.Excerpt("image", data=b"\xff\xd8", media_type="image/jpeg")),
+            (f("c", "scan.pdf"), cc.Excerpt("pdf", data=scanned_pdf(3), media_type=cc.PDF)),
+            (f("d", "broken.pdf"), cc.Excerpt("pdf", data=b"not a pdf", media_type=cc.PDF))]
+    msgs = cc.local_messages("sys", rows, {})
+    assert msgs[0] == {"role": "system", "content": "sys"} and len(msgs) == 6
+    assert "<content>\nInvoice from City Hospital" in msgs[1]["content"] and "images" not in msgs[1]
+    assert len(msgs[2]["images"]) == 1
+    assert len(msgs[3]["images"]) == cc.SCAN_PAGES                       # the first pages, as JPEGs
+    from PIL import Image
+    page = Image.open(io.BytesIO(__import__("base64").b64decode(msgs[3]["images"][0])))
+    assert page.format == "JPEG" and max(page.size) == cc.LOCAL_IMAGE_SIZE
+    assert "judge by the name" in msgs[4]["content"] and "images" not in msgs[4]  # unreadable scan
+    assert "4 files" in msgs[5]["content"]
+
+
+def test_local_classify_parses_and_survives_bad_json():
+    rows = [(f("a", "bill.pdf"), cc.Excerpt("text", text="x")), (f("b", "y.pdf"), cc.Excerpt("name"))]
+    ai = FakeOllama({"bill.pdf": ("Medical", "high")})
+    out = cc.classify_batch(ai, "sys", rows, {})
+    assert out[1].folder == "Medical" and 2 not in out
+    assert ai.calls[0][1] == cc.TopicResult.model_json_schema()
+    assert cc.classify_batch(FakeOllama({}, reply="not json"), "sys", rows, {}) == {}
+    assert cc.classify_batch(FakeOllama({}, reply='{"files": [{"id": 9, "folder": "X", "confidence": "high", '
+                                                 '"summary": ""}]}'), "sys", rows, {}) == {}  # unknown id
+
+
+def test_local_client_errors_and_readiness(monkeypatch):
+    import httpx
+
+    calls = []
+
+    def post(url, **kw):
+        calls.append(kw["json"])
+        return httpx.Response(404, json={"error": "model not found"})
+
+    monkeypatch.setattr(httpx, "post", post)
+    client = cc.OllamaClient("http://ollama.test/", "gemma3:4b")
+    with pytest.raises(cc.OllamaError, match="ollama pull gemma3:4b"):
+        client.chat([], {})
+    assert calls[0]["stream"] is False and calls[0]["options"]["temperature"] == 0
+
+    cc.OllamaClient._ready_cache.clear()
+    monkeypatch.setattr(httpx, "get", lambda url, **kw: httpx.Response(200, json={"models": [{"name": "gemma3:4b"}]}))
+    assert client.ready() and not cc.OllamaClient("http://ollama.test", "qwen3:4b").ready()
+    cc.OllamaClient._ready_cache.clear()
+
+
+def test_provider_selects_the_client(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "classifier_provider", "")
+    assert cc.provider() == "ollama" and isinstance(cc.ai_client(), cc.OllamaClient)
+    monkeypatch.setattr(settings, "classifier_provider", "anthropic")
+    monkeypatch.setattr(settings, "anthropic_api_key", "k")
+    assert not isinstance(cc.ai_client(), cc.OllamaClient)
+
+
 # ---- suggestions ------------------------------------------------------------------------------------
 
 
@@ -297,6 +392,13 @@ def test_run_classifies_then_resumes_without_rereading(env):
     assert cc.status(db, acc.id, "root") == {"candidates": 4, "analyzed": 4, "pending": 0}
     calls = len(ai.calls)
     assert cc.run(SessionLocal, drive, ai, acc.id, "root")["total"] == 0 and len(ai.calls) == calls
+
+
+def test_run_with_the_local_model_sends_smaller_batches(env):
+    db, acc, drive = env
+    ai = FakeOllama(ANSWERS)
+    assert cc.run(SessionLocal, drive, ai, acc.id, "root")["classified"] == 4
+    assert all(len(m) - 2 <= cc.LOCAL_BATCH_SIZE for m, _ in ai.calls)
 
 
 def test_cancelled_run_stops_before_asking(env):

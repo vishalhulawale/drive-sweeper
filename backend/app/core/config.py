@@ -15,13 +15,20 @@ class Settings(BaseSettings):
     extract_dir: str = ""
     unrar_tool: str = ""
     archive_upload_workers: int = 12  # files uploaded at the same time within one archive
-    # Organizer content classification (optional). The Anthropic SDK also finds credentials on its own
-    # (ANTHROPIC_API_KEY in the environment or an `ant auth login` profile); this is for a key in .env.
+    # Organizer content classification. "ollama" (a local model, the default), "anthropic" (the Claude API)
+    # or "foundry" (Claude in Microsoft Foundry).
+    classifier_provider: str = "ollama"
+    # Ollama: the server and a small vision model (it reads text excerpts and image previews). docker-compose.yml
+    # runs Ollama and pulls the model. num_ctx fits a batch of four excerpts, their images and the folder list.
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "gemma3:4b"
+    ollama_num_ctx: int = 8192
+    ollama_keep_alive: str = "30m"  # how long the model stays loaded after a request
+    # Claude. The Anthropic SDK also finds credentials on its own (ANTHROPIC_API_KEY in the environment or an
+    # `ant auth login` profile); this is for a key in .env. On Foundry the model is the deployment name, and the
+    # resource (the <resource> in https://<resource>.services.ai.azure.com) or a full base URL is required
+    # along with the key.
     anthropic_api_key: str = ""
-    # "anthropic" (the Claude API) or "foundry" (Claude in Microsoft Foundry). On Foundry the model is the
-    # deployment name, and the resource (the <resource> in https://<resource>.services.ai.azure.com) or a full
-    # base URL is required along with the key.
-    classifier_provider: str = "anthropic"
     classifier_model: str = "claude-opus-5-5"
     # Thinking effort for the classification requests; empty leaves it out. It is left out automatically for
     # models that do not take it (Claude Haiku 4.5, Sonnet 4.5); set it empty yourself for a Foundry deployment

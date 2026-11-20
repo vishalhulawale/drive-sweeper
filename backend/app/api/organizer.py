@@ -78,21 +78,21 @@ def undo(op_id: int, db: Session = Depends(get_db), client=Depends(get_drive_cli
     return _op_out(op, db.get(DriveFile, op.drive_file_id) if op.drive_file_id else None)
 
 
-# ---- content analysis (Claude reads file excerpts to pick topic folders) --------------------------------
+# ---- content analysis (a language model reads file excerpts to pick topic folders) ----------------------
 
 
 def get_ai_client():
-    """Dependency so tests can substitute a fake Anthropic client."""
+    """Dependency so tests can substitute a fake model client."""
     try:
-        return cc.anthropic_client()
+        return cc.ai_client()
     except Exception as err:  # e.g. Foundry without a resource or key
-        raise HTTPException(400, f"Claude is not set up on the backend: {err}")
+        raise HTTPException(400, f"The content classifier is not set up on the backend: {err}")
 
 
 def _content_status(db: Session, account_id: int, source: str) -> ContentStatus:
     s = topic_worker.state()
     return ContentStatus(
-        configured=cc.configured(), running=bool(s["running"]), last_error=s["last_error"],
+        configured=cc.configured(), provider=cc.provider(), running=bool(s["running"]), last_error=s["last_error"],
         last_result=s["last_result"], progress_done=int(s["done"]), progress_total=int(s["total"]),
         **cc.status(db, account_id, source),
     )
@@ -106,8 +106,8 @@ def content_status(source: str = Query("root", max_length=128), db: Session = De
 @router.post("/content/start", response_model=ContentStatus, status_code=202)
 def content_start(source: str = Query("root", max_length=128), db: Session = Depends(get_db),
                   client=Depends(get_drive_client), ai=Depends(get_ai_client)):
-    """Read an excerpt of each loose file in source and ask Claude for its topic folder. Resumable.
-    Needs the full Drive permission (to read contents) and an Anthropic API key."""
+    """Read an excerpt of each loose file in source and ask the model for its topic folder. Resumable.
+    Needs the full Drive permission (to read contents) and a running Ollama, or Claude credentials."""
     account = _account(db)
     if scan_repository.get_active(db, account.id):
         raise HTTPException(409, "A full scan is running; try again when it finishes")
